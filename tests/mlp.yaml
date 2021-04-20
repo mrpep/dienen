@@ -1,0 +1,16 @@
+Model:
+  name: mlp
+  Architecture:
+  - Input:
+      name: image
+      input: x
+  - Flatten: {}
+  - Dense:
+      name: hidden_layer
+      units: 128
+      activation: relu
+  - Dense:
+      name: out_probs
+      activation: softmax
+  inputs: [image]
+  outputs: [out_probs]
