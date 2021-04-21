@@ -1,5 +1,13 @@
 Model:
   name: mlp
+  Training:
+    workers: 1
+    loss: sparse_categorical_crossentropy
+    metrics: [categorical_accuracy]
+    optimizer:
+      type: Adam
+      clipvalue: 1
+      learning_rate: 0.001
   Architecture:
   - Input:
       name: image
@@ -11,6 +19,7 @@ Model:
       activation: relu
   - Dense:
       name: out_probs
+      units: 10
       activation: softmax
   inputs: [image]
   outputs: [out_probs]
