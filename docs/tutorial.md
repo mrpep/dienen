@@ -1,5 +1,6 @@
 ### Dienen Tutorial
 
+#### A minimal example
 Let's do the classical ML example of MNIST digits recognition. First we are going to build a very simple model consisting of a Multi Layer Perceptron (MLP). The configuration file for the model is this .yaml document:
 
 mlp.yaml
@@ -50,7 +51,6 @@ Now, we are halfway there. It is time to write the code that loads this configur
 train_mnist.py
 ```python
 #IMPORTS
-
 import tensorflow as tf
 import dienen
 import pickle
@@ -86,4 +86,21 @@ acc = 100*(y_pred == y_test).sum()/len(y_pred) #Calculate accuracy
 print('MLP model Test accuracy: {:.2f}%'.format(acc))
 ```
 
+So, in the first lines what we do is to load MNIST, and generate numpy arrays for train, validation and test sets.
+Then, we create the dnn variable, using **dienen.Model(config_path)**, which constructs a Dienen model.
+Then, we pass the training and validation data using **set_data()**, which receives tuples of arrays, being the first element the input and the second the target.
+Calling set_data is optional, however it can be handy when we do not want to specify the input shape. If we don't call set_data, we should add a parameter to the input like:
+```yaml
+input_shape: [28,28]
+```
+telling it the dimensionality of the inputs. When set_data() is called, this parameter is automatically set by grabbing one instance of the dataset and checking its shape.
 
+Then, we call **build()**. This method actually generates the keras model, connecting every layer and generating the tensorflow graph.
+Finally, **fit()** will train the neural network with the data passed to set_data. If we don't use set_data, we can pass the data directly to fit(data=(x_train,y_train),validation_data=(x_val,y_val)).
+
+Then, when training finishes, we can save the complete model using pickle, and then load it.
+Also, we can use **predict()** to calculate outputs for given inputs. We will see later that it can also be used to extract activations from specific layers.
+
+Finally, we calculate the accuracy and print it.
+
+#### A bit more complex model
