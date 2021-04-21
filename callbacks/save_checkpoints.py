@@ -12,6 +12,7 @@ class SaveCheckpoints(Callback):
     def __init__(self, save_optimizer = True, frequency = 1, time_unit = 'epoch', save_best = True, monitor_metric = 'val_loss', monitor_criteria = 'auto', compression_level=3, save_initialization=False, save_last = True, clean_old=True, wandb_log=False):
         """
         Callback to save model parameters (aka checkpoints) regularly.
+        
         args:
         save_optimizer:         bool (default=True), whether to include or not the optimizer state in the checkpoint.
                                 It is recommended to keep training from a loaded checkpoint.
