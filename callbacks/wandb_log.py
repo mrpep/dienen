@@ -10,8 +10,33 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class WANDBLogger(Callback):
-    def __init__(self, wandb_run = None, loggers=None):
-        #Ver de pasar ID del modelo o nombre en algun lado para que quede mejor
+    """
+    Log metrics to Weights and Biases server.
+
+    args:
+
+    loggers:        a dictionary containing different loggers configurations. The supported keys are
+                    'Spectrograms' and 'TrainMetrics'. These log respectively, spectrograms of data in a given
+                    model layer output, and the metrics calculated in the model.
+                    The values consists of dictionaries with parameters of each logger.
+
+                    Both loggers support 'freq' and 'unit' (which can be 'epoch' or 'step'), to indicate how often
+                    data is logged.
+                    Spectrograms supports:
+                        in_layers:          indicates the layer/s that is the model input
+                        out_layers:         indicates the name of the layer from which the spectrogram is calculated.
+                        test_data:          data to use as input to obtain the spectrograms
+                        plot_lims:          [vmin, vmax] of the plt.imshow function called (limits of the color)
+                    TrainMetrics supports:
+                        prefix:             (optional) string which is appended at the beginning of the metric name when logging.
+
+
+
+
+
+
+    """
+    def __init__(self, loggers=None, wandb_run = None):
         self.wandb_run = wandb_run
         self.step = 0
         self.epoch = 0
