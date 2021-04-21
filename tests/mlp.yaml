@@ -11,7 +11,6 @@ Model:
   Architecture:
   - Input:
       name: image
-      input: x
   - Flatten: {}
   - Dense:
       name: hidden_layer

@@ -46,7 +46,7 @@ def assign_names_and_inputs(layerlist,names=None,base_name=None,logger=None):
     if not names:
         names = []
     #Keep track of last input
-    last_layer = None
+    last_layer = 'x'
     alllayer_inputs = {}
     
     for layer in layerlist:
