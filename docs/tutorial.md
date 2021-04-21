@@ -47,5 +47,43 @@ The output is called out_probs and has 10 units (neurons), which correspond to t
 
 Now, we are halfway there. It is time to write the code that loads this configuration file, prepares the data and trains the model:
 
+train_mnist.py
+```python
+#IMPORTS
+
+import tensorflow as tf
+import dienen
+import pickle
+import numpy as np
+
+#Get the MNIST dataset using tf utilities:
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data(path='mnist.npz')
+
+#Feature scaling:
+x_train = x_train/255.
+x_test = x_test/255.
+
+#Use the first 2000 instances for validation:
+x_val = x_train[:2000]
+y_val = y_train[:2000]
+
+x_train = x_train[2000:]
+y_train = y_train[2000:]
+
+dnn = dienen.Model('mlp.yaml') #Load the model
+dnn.set_data((x_train,y_train),validation = (x_val,y_val)) #Set the dataset
+keras_model = dnn.build() #Build the model
+
+dnn.fit() #Train the model
+
+pickle.dump(dnn,open('mlp.model','wb')) #Save it (dienen models are serializable)
+dnn = pickle.load(open('mlp.model','rb')) #Load it
+
+y_probs = dnn.predict(x_test) #Make some predictions
+y_pred = np.argmax(y_probs,axis=1)
+
+acc = 100*(y_pred == y_test).sum()/len(y_pred) #Calculate accuracy
+print('MLP model Test accuracy: {:.2f}%'.format(acc))
+```
 
 
