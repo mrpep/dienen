@@ -3,7 +3,7 @@ Model:
   Training:
     workers: 1
     loss: sparse_categorical_crossentropy
-    metrics: [categorical_accuracy]
+    metrics: [sparse_categorical_accuracy]
     optimizer:
       type: Adam
       clipvalue: 1
