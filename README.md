@@ -10,4 +10,4 @@ Then, install using pip
 pip install dienen
 ```
 
-Now, that dienen is installed, it is time to train some models. Check out the [tutorial](docs/tutorial) and learn how to do it.
+Now, that dienen is installed, it is time to train some models. Check out the [tutorial](docs/tutorial.md) and learn how to do it.
