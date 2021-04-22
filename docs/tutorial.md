@@ -104,3 +104,51 @@ Also, we can use **predict()** to calculate outputs for given inputs. We will se
 Finally, we calculate the accuracy and print it.
 
 #### A bit more complex model
+
+Let's see how to build a convolutional neural network with early stopping and saving checkpoints each epoch:
+
+```yaml
+Model:
+  name: cnn
+  Training:
+    workers: 1
+    loss: sparse_categorical_crossentropy
+    metrics: [sparse_categorical_accuracy]
+    optimizer:
+      type: Adam
+      clipvalue: 1
+      learning_rate: 0.001
+    schedule:
+      SaveCheckpoints:
+        monitor_metric: val_loss
+      EarlyStopping:
+        patience: 1
+  Architecture:
+  - Input:
+      name: image
+  - ExpandDims:
+      axis: -1
+  - Stamp:
+      what:
+      - Conv2D:
+          kernel_size: [3,3]
+          filters: [8,16,32]
+          padding: SAME
+      - BatchNormalization: {}
+      - Activation:
+          activation: relu
+      - MaxPooling2D:
+          pool_size: 2
+      times: 3
+  - Flatten: {}
+  - Dense:
+      name: out_probs
+      units: 10
+      activation: softmax
+  inputs: [image]
+  outputs: [out_probs]
+```
+In **Training** the main difference is that now we have a **schedule** key. This takes a dictionary with the name of a callback as key and its parameters as values. For example, in this case, the callbacks SaveCheckpoints and EarlyStopping will be executed at each epoch. EarlyStopping instantiates a tf.keras.callbacks.EarlyStopping class, and SaveCheckpoints is a dienen custom callback, similar to ModelCheckpoint from Tensorflow. Check its [code](../src/dienen/callbacks/save_checkpoints.py) for more details.
+
+Then, in the architecture, a new element, called **Stamp** appears. What Stamp does is to repeat all what it is inside the key **what**, in this case 3 times.
+In what, we have a Conv2D layer, followed by batch normalization, relu activation and maxpooling. This block will get repeated 3 times, however, as filters takes a list of also 3 elements, for each of the repetitions, a different filters parameters will be set. In this case, the first block will have 8 filters, while the second 16, and the third 32. This syntax allows us to build neural networks with many layers using a minimal configuration file.
