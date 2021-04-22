@@ -167,3 +167,40 @@ by
 dnn = dienen.Model('cnn_schedules.yaml')
 ```
 Also, when doing predictions, we would like to use the weights of the best epoch instead of the last one. To do this, we can call the method **load_weights()**, which will load the weights of the best epoch. The metric used in SaveCheckpoints is used to select the epoch, and we can pass an argument **strategy** to tell if it a lower value is better or not, using 'min' or 'max'.
+
+Finally, if we want to visualize the activations of intermediate layers of a model we can do something like this:
+
+```python
+import pickle
+import tensorflow as tf
+
+dnn = pickle.load(open('cnn.model','rb'))
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data(path='mnist.npz')
+
+predictions = dnn.predict(x_train[:10],output=['conv1','conv2','conv3'])
+```
+
+passing the output argument to predict, allows us to specify which layers activations are returned. predict() returns a dictionary, with the layer name as key, and the activations as values.
+
+Then, we can do plots easily:
+
+```python
+import matplotlib.pyplot as plt
+
+fig,ax = plt.subplots(nrows=10,ncols=8,figsize=(6,6))
+for i,pred in enumerate(predictions['conv1']):
+    for j in range(8):
+        ax[i,j].imshow(pred[:,:,j])
+        ax[i,j].axis('off')
+plt.subplots_adjust(wspace=0.001,hspace=0.001)
+```
+
+This gives us:
+
+![image](https://user-images.githubusercontent.com/35248954/115649116-181e5a00-a2fd-11eb-8c7c-7c4b2f98620c.png)
+
+If, we instead plot 'conv3' activations, these are more abstract:
+
+![image](https://user-images.githubusercontent.com/35248954/115649178-35ebbf00-a2fd-11eb-914c-24207857529b.png)
+
+
