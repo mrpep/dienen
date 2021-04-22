@@ -135,6 +135,7 @@ Model:
           kernel_size: [3,3]
           filters: [8,16,32]
           padding: SAME
+          name: [conv1,conv2,conv3]
       - BatchNormalization: {}
       - Activation:
           activation: relu
@@ -152,7 +153,7 @@ Model:
 In **Training** the main difference is that now we have a **schedule** key. This takes a dictionary with the name of a callback as key and its parameters as values. For example, in this case, the callbacks SaveCheckpoints and EarlyStopping will be executed at each epoch. EarlyStopping instantiates a tf.keras.callbacks.EarlyStopping class, and SaveCheckpoints is a dienen custom callback, similar to ModelCheckpoint from Tensorflow. Check its [code](../src/dienen/callbacks/save_checkpoints.py) for more details.
 
 Then, in the architecture, a new element, called **Stamp** appears. What Stamp does is to repeat all what it is inside the key **what**, in this case 3 times.
-In what, we have a Conv2D layer, followed by batch normalization, relu activation and maxpooling. This block will get repeated 3 times, however, as filters takes a list of also 3 elements, for each of the repetitions, a different filters parameters will be set. In this case, the first block will have 8 filters, while the second 16, and the third 32. This syntax allows us to build neural networks with many layers using a minimal configuration file.
+In what, we have a Conv2D layer, followed by batch normalization, relu activation and maxpooling. This block will get repeated 3 times, however, as filters takes a list of also 3 elements, for each of the repetitions, a different filters parameters will be set. In this case, the first block will have 8 filters, while the second 16, and the third 32. The same happens with the name. This syntax allows us to build neural networks with many layers using a minimal configuration file.
 
 Finally, the python code to train the model would be the same, but changing
 
