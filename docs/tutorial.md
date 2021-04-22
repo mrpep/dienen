@@ -107,7 +107,7 @@ Finally, we calculate the accuracy and print it.
 
 Let's see how to build a convolutional neural network with early stopping and saving checkpoints each epoch:
 
-cnn.yaml
+cnn_schedules.yaml
 ```yaml
 Model:
   name: cnn
@@ -163,6 +163,6 @@ dnn = dienen.Model('mlp.yaml')
 by
 
 ```python
-dnn = dienen.Model('cnn.yaml')
+dnn = dienen.Model('cnn_schedules.yaml')
 ```
 Also, when doing predictions, we would like to use the weights of the best epoch instead of the last one. To do this, we can call the method **load_weights()**, which will load the weights of the best epoch. The metric used in SaveCheckpoints is used to select the epoch, and we can pass an argument **strategy** to tell if it a lower value is better or not, using 'min' or 'max'.
