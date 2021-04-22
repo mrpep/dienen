@@ -201,6 +201,6 @@ This gives us:
 
 If, we instead plot 'conv3' activations, these are more abstract:
 
-![image](https://user-images.githubusercontent.com/35248954/115649178-35ebbf00-a2fd-11eb-914c-24207857529b.png)
+![image](https://user-images.githubusercontent.com/35248954/115649392-967afc00-a2fd-11eb-8acc-e2ab6ed0f05b.png)
 
 
