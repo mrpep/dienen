@@ -1,0 +1,40 @@
+Model:
+  name: cnn
+  Training:
+    workers: 1
+    loss: sparse_categorical_crossentropy
+    metrics: [sparse_categorical_accuracy]
+    optimizer:
+      type: Adam
+      clipvalue: 1
+      learning_rate: 0.001
+    schedule:
+      SaveCheckpoints:
+        monitor_metric: val_loss
+      EarlyStopping:
+        patience: 1
+  Architecture:
+  - Input:
+      name: image
+  - ExpandDims:
+      axis: -1
+  - Stamp:
+      what:
+      - Conv2D:
+          kernel_size: 3
+          filters: [8,16,32]
+          padding: SAME
+          name: [conv1,conv2,conv3]
+      - BatchNormalization: {}
+      - Activation:
+          activation: relu
+      - MaxPooling2D:
+          pool_size: 2
+      times: 3
+  - Flatten: {}
+  - Dense:
+      name: out_probs
+      units: 10
+      activation: softmax
+  inputs: [image]
+  outputs: [out_probs]

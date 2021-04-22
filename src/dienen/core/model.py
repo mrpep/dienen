@@ -30,6 +30,9 @@ class Model():
         self.core_model = None
         self.architecture_config = None
         self.model_path = None
+        self.name = self.config['Model'].get('name',datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+        if not self.model_path:
+            self.model_path = self.config['Model'].get('path','{}'.format(self.name))
         self.weights = None
         self.optimizer_weights = None
         self.extra_data = None
@@ -83,8 +86,6 @@ class Model():
                             specified in the configuration file.
         """
 
-        self.name = self.config['Model'].get('name',datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-        
         architecture_config = self.config['Model']['Architecture']
         self.architecture_config = ArchitectureConfig(architecture_config, self.externals, logger=self.logger)
 
@@ -139,9 +140,7 @@ class Model():
             self.training_node.set_extra_data(self.extra_data)
         if not self.core_model:
             self.build()
-        if not self.model_path:
-            self.model_path = self.config['Model'].get('path','{}'.format(self.name))
-        
+
         if self.logger:
             self.logger.info('Model Summary: \n{}'.format(self.core_model.model.summary()))
         else:
@@ -394,6 +393,8 @@ class Model():
         strategy:       (default='min'). If 'min', the checkpoint with minimum value of the monitored metric is used.
                         If 'max', the checkpoint with maximum monitored metric is used instead.
         """
+
+
         checkpoints_metadata_path = Path(self.model_path,'checkpoints','metadata')
         if checkpoints_metadata_path.exists():
             checkpoints_metadata = joblib.load(checkpoints_metadata_path)

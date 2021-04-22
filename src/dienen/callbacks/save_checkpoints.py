@@ -93,8 +93,8 @@ class SaveCheckpoints(Callback):
 
                 metadata = joblib.load(Path(ckpt_path,'metadata'))
                 best_metric = self.current_best
-                best_epoch_paths = None
-                last_epoch_paths = None
+                best_epoch_paths = []
+                last_epoch_paths = []
                 best_metadata_idx = -1
                 last_metadata_idx = -1
                 last_step = -1

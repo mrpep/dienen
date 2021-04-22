@@ -20,7 +20,7 @@ x_train = x_train[2000:]
 y_train = y_train[2000:]
 
 results = {}
-for model_name, model_config in dict(mlp='mlp.yaml', cnn='cnn.yaml').items():
+for model_name, model_config in dict(mlp='mlp.yaml', cnn='cnn_schedules.yaml').items():
     dnn = dienen.Model(model_config) #Load the model
     dnn.set_data((x_train,y_train),validation = (x_val,y_val)) #Set the dataset
     keras_model = dnn.build() #Build the model
@@ -29,6 +29,7 @@ for model_name, model_config in dict(mlp='mlp.yaml', cnn='cnn.yaml').items():
 
     pickle.dump(dnn,open('{}.model'.format(model_name),'wb')) #Save it (dienen models are serializable)
     dnn = pickle.load(open('{}.model'.format(model_name),'rb')) #Load it
+    dnn.load_weights()
 
     y_probs = dnn.predict(x_test) #Make some predictions
     y_pred = np.argmax(y_probs,axis=1)
