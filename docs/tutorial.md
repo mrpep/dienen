@@ -107,6 +107,7 @@ Finally, we calculate the accuracy and print it.
 
 Let's see how to build a convolutional neural network with early stopping and saving checkpoints each epoch:
 
+cnn.yaml
 ```yaml
 Model:
   name: cnn
@@ -152,3 +153,16 @@ In **Training** the main difference is that now we have a **schedule** key. This
 
 Then, in the architecture, a new element, called **Stamp** appears. What Stamp does is to repeat all what it is inside the key **what**, in this case 3 times.
 In what, we have a Conv2D layer, followed by batch normalization, relu activation and maxpooling. This block will get repeated 3 times, however, as filters takes a list of also 3 elements, for each of the repetitions, a different filters parameters will be set. In this case, the first block will have 8 filters, while the second 16, and the third 32. This syntax allows us to build neural networks with many layers using a minimal configuration file.
+
+Finally, the python code to train the model would be the same, but changing
+
+```python
+dnn = dienen.Model('mlp.yaml')
+```
+
+by
+
+```python
+dnn = dienen.Model('cnn.yaml')
+```
+Also, when doing predictions, we would like to use the weights of the best epoch instead of the last one. To do this, we can call the method **load_weights()**, which will load the weights of the best epoch. The metric used in SaveCheckpoints is used to select the epoch, and we can pass an argument **strategy** to tell if it a lower value is better or not, using 'min' or 'max'.
