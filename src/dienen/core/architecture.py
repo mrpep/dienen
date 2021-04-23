@@ -17,7 +17,7 @@ class Architecture:
 	Processes a config with layers specification.
 	"""
     
-	def __init__(self,architecture_config,layer_modules=None, inputs=None, outputs=None, externals=None, processed_config=None):
+	def __init__(self,architecture_config,layer_modules=None, inputs=None, outputs=None, externals=None, processed_config=None, training_strategy=None):
 
 		self.architecture_config = architecture_config
 		self.processed_config = self.architecture_config.translate()
@@ -40,7 +40,9 @@ class Architecture:
 		self.layer_modules = layer_modules
 		self.find_external_weights()
 		self.create_layers()
-		self.model = self.make_network()
+
+		with training_strategy.scope():
+			self.model = self.make_network()
 
 	def find_external_weights(self):
 		self.weights_to_assign = {}

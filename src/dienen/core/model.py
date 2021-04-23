@@ -14,6 +14,7 @@ import joblib
 from pathlib import Path
 import tensorflow as tf
 from kahnfigh import Config, shallow_to_deep, shallow_to_original_keys
+from numba import cuda
 
 class Model():
     def __init__(self,config,logger=None):
@@ -43,29 +44,36 @@ class Model():
         self.input_shapes = None
         self.output_shapes = None
 
-        gpu_device = self.gpu_config.get('device','auto')
-        if gpu_device == 'auto':
-            gpu, mem = get_available_gpus()
-            gpu_device = int(gpu)
-            if self.logger:
-                self.logger.info("Automatically selected device {} with {} available memory".format(gpu_device,mem))
-        gpu_growth = self.gpu_config.get('allow_growth',True)
-        gpus = tf.config.experimental.list_physical_devices('GPU')
-        if gpus:
-            try:
-                if len(gpus) < gpu_device:
-                    raise Exception('There are only {} available GPUs and the {} was requested'.format(len(gpus),gpu_device))
-                tf.config.experimental.set_visible_devices(gpus[gpu_device], 'GPU')
-            except RuntimeError as e:
-                raise Exception('Failed setting GPUs. {}'.format(e))
-        if gpu_growth:
-            for gpu in gpus:
-                try:
-                    tf.config.experimental.set_memory_growth(gpu, gpu_growth)
-                except RuntimeError as e:
-                    raise Exception('Failed setting GPU dynamic memory allocation. {}'.format(e))
+        training_strategy = self.config['Model'].get('DistributedStrategy',None)
+        if training_strategy is None:
+            self.training_strategy = tf.distribute.get_strategy()
+        elif training_strategy == 'Mirrored':
+            self.training_strategy = tf.distribute.MirroredStrategy()
 
-        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        if training_strategy is None:
+            self.gpu_device = self.gpu_config.get('device','auto')
+            if self.gpu_device == 'auto':
+                gpu, mem = get_available_gpus()
+                self.gpu_device = int(gpu)
+                if self.logger:
+                    self.logger.info("Automatically selected device {} with {} available memory".format(self.gpu_device,mem))
+            gpu_growth = self.gpu_config.get('allow_growth',True)
+            gpus = tf.config.experimental.list_physical_devices('GPU')
+            if gpus:
+                try:
+                    if len(gpus) < self.gpu_device:
+                        raise Exception('There are only {} available GPUs and the {} was requested'.format(len(gpus),self.gpu_device))
+                    tf.config.experimental.set_visible_devices(gpus[self.gpu_device], 'GPU')
+                except RuntimeError as e:
+                    raise Exception('Failed setting GPUs. {}'.format(e))
+            if gpu_growth:
+                for gpu in gpus:
+                    try:
+                        tf.config.experimental.set_memory_growth(gpu, gpu_growth)
+                    except RuntimeError as e:
+                        raise Exception('Failed setting GPU dynamic memory allocation. {}'.format(e))
+
+            logical_gpus = tf.config.experimental.list_logical_devices('GPU')
 
         if self.logger:
             self.logger.debug("Physical GPUs: {}. Logical GPUs: {}".format(len(gpus), len(logical_gpus)))
@@ -112,7 +120,8 @@ class Model():
                         if self.logger:
                             self.logger.info('Layer {}: automatically set units as: {}'.format(out_name,self.output_shapes[i][0]))
         
-        nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config)
+        nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config,training_strategy=self.training_strategy)
+        #nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config)
         self.core_model = nn
 
         if return_tensors:
@@ -146,8 +155,8 @@ class Model():
         else:
             print(self.core_model.model.summary())
        
-        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache)
-
+        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache,training_strategy=self.training_strategy)
+        #self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache)
 
     def get_optimizer(self):
         """

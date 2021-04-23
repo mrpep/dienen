@@ -8,7 +8,7 @@ import tensorflow as tf
 
 class TrainingNode(DienenNode):
     def __init__(self,config, modules=None, logger=None):
-        self.valid_nodes = ['loss','optimizer','schedule','n_epochs','workers','custom_fit','metrics']
+        self.valid_nodes = ['loss','optimizer','schedule','n_epochs','workers','custom_fit','metrics','batch_size']
         self.required_nodes = ['loss','optimizer']
         super().set_config(config)
         self.optimizer_weights = None
@@ -148,7 +148,7 @@ class TrainingNode(DienenNode):
 
         return cb_list
 
-    def fit(self, keras_model, data, output_path, from_epoch=0, validation_data=None, cache=True):
+    def fit(self, keras_model, data, output_path, from_epoch=0, validation_data=None, cache=True, training_strategy=None):
         self.model_path = output_path
         self.cache = cache
         n_epochs = self.config.get('n_epochs',10)
@@ -161,7 +161,8 @@ class TrainingNode(DienenNode):
             cb.epoch = from_epoch
             cb.data = data
 
-        keras_model.compile(optimizer=optimizer,loss=loss_fn,metrics=metrics)
+        with training_strategy.scope():
+            keras_model.compile(optimizer=optimizer,loss=loss_fn,metrics=metrics)
 
         if self.weights:
             load_weights(self.weights,keras_model)
@@ -203,9 +204,9 @@ class TrainingNode(DienenNode):
                     validation_data = tuple(validation_data)
                 keras_model.fit(x=data[0],y=data[1],initial_epoch=from_epoch,epochs=n_epochs,
                     callbacks=cb_list, validation_data=validation_data, use_multiprocessing = use_multiprocessing,
-                    workers = n_workers, shuffle=False)
+                    workers = n_workers, shuffle=False, batch_size=self.config.get('batch_size',None))
             else:
                 keras_model.fit(data,initial_epoch=from_epoch,epochs=n_epochs,
                     callbacks=cb_list, validation_data=validation_data, use_multiprocessing = use_multiprocessing,
-                    workers = n_workers, shuffle=False)
+                    workers = n_workers, shuffle=False, batch_size=self.config.get('batch_size',None))
 
