@@ -5,24 +5,31 @@ import numpy as np
 class MSE(tfkl.Layer):
     #x[0]: predicted
     #x[1]: original
-    def __init__(self,name=None,lnorm=2,offset=1e-9,normalize=False,trainable=False):
+    def __init__(self,name=None,lnorm=2,offset=1e-9,normalize=False,trainable=False,reduce_method=None):
         super(MSE,self).__init__(name=name,trainable=trainable)
         self.offset = offset
         self.normalize = normalize
         self.lnorm = lnorm
+        self.reduce = reduce_method
     
     def call(self,x):
         mse_error = tf.abs(x[0] - x[1])**self.lnorm
         if self.normalize:
             mse_error = mse_error/(self.offset + tf.abs(x[1])**self.lnorm)
-        return mse_error
+        if self.reduce == 'mean':
+            return tf.reduce_mean(mse_error)
+        elif self.reduce == 'sum':
+            return tf.reduce_sum(mse_error)
+        else:
+            return mse_error
 
     def get_config(self):
         config = super().get_config().copy()
         config.update({
             'offset': self.offset,
             'normalize': self.normalize,
-            'lnorm': self.lnorm
+            'lnorm': self.lnorm,
+            'reduce': self.reduce
         })
         return config
 
