@@ -139,15 +139,17 @@ class SoftMask(tfkl.Layer):
         return mask*to_mask
 
 class Spectrogram(tfkl.Layer):
-    def __init__(self,win_size,hop_size,fft_size=None,calculate='magnitude',window=tf.signal.hann_window,pad_end=False,name=None, trainable=False):
-        super(Spectrogram, self).__init__(name=name)
+    def __init__(self,win_size,hop_size,fft_size=None,calculate='magnitude',window=tf.signal.hann_window,
+                pad_end=False,name=None, trainable=False, discard_nyquist=False):
 
+        super(Spectrogram, self).__init__(name=name)
         self.stft_args = {'ws': win_size,
                   'hs': hop_size,
                   'ffts': fft_size,
                   'win': window,
                   'pad': pad_end,
-                  'calculate': calculate}
+                  'calculate': calculate,
+                  'discard_nyquist': discard_nyquist}
 
     def call(self,x):
         stft = tf.signal.stft(
@@ -159,6 +161,10 @@ class Spectrogram(tfkl.Layer):
                 pad_end=self.stft_args['pad'])
 
         calculate = self.stft_args['calculate']
+
+        if self.stft_args['discard_nyquist']:
+            stft = stft[:,:,:-1]
+
         if calculate == 'magnitude':
             return tf.abs(stft)
         elif calculate == 'complex':
