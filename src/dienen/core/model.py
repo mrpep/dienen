@@ -330,22 +330,26 @@ class Model():
         self.train_data = train
         self.validation_data = validation
 
-        if isinstance(train,tuple):
-            x = train[0][:16]
-            y = train[1][:16]
-        else:
-            x, y = train.__getitem__(0)
+        inputs = self.config['Model/inputs']
 
-        #For automatic shape inference
-        if isinstance(x,list):
-            self.input_shapes = [x_i.shape[1:] for x_i in x]
-        else:
-            self.input_shapes = [x.shape[1:]]
+        inputs_determined = sum([('shape' in l[list(l.keys())[0]]) for l in self.config['Model/Architecture'] if 'name' in l[list(l.keys())[0]] and l[list(l.keys())[0]]['name'] in inputs])
+        if inputs_determined != len(inputs):
+            if isinstance(train,tuple):
+                x = train[0][:16]
+                y = train[1][:16]
+            else:
+                x, y = train.__getitem__(0)
 
-        if isinstance(y,list):
-            self.output_shapes = [x_i.shape[1:] for x_i in y]
-        else:
-            self.output_shapes = [y.shape[1:]]
+            #For automatic shape inference
+            if isinstance(x,list):
+                self.input_shapes = [x_i.shape[1:] for x_i in x]
+            else:
+                self.input_shapes = [x.shape[1:]]
+
+            if isinstance(y,list):
+                self.output_shapes = [x_i.shape[1:] for x_i in y]
+            else:
+                self.output_shapes = [y.shape[1:]]
 
     def set_extra_data(self,data):
         """

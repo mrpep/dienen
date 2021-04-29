@@ -49,13 +49,13 @@ class VQLayer(tfkl.Layer):
         return config
 
 class GumbelSoftmaxVQ(tfkl.Layer):
-    def __init__(self, codes_per_group, vq_dim, groups=1,temperature=0.5,name=None,affine_group_merge=True,logits_as_input=False,diversity_loss_weight=0.1, diversity_loss='entropy'):
+    def __init__(self, codes_per_group, vq_dim, groups=1,temperature=0.5,name=None,merge_method='affine',logits_as_input=False,diversity_loss_weight=0.1, diversity_loss='entropy'):
         super(GumbelSoftmaxVQ, self).__init__(name=name)
         self.codes_per_group = codes_per_group
         self.vq_dim = vq_dim
         self.groups = groups
         self.temperature = tf.Variable(temperature,trainable=False)
-        self.affine_group_merge = affine_group_merge
+        self.merge_method = merge_method
         self.logits_as_input = logits_as_input
         self.diversity_loss_type = diversity_loss
         self.diversity_loss_weight = tf.Variable(diversity_loss_weight,trainable=False)
@@ -71,7 +71,7 @@ class GumbelSoftmaxVQ(tfkl.Layer):
                     initial_value=e_init(shape=(self.groups, self.codes_per_group, self.vq_dim), dtype="float32"),
                     trainable=self.trainable, name=self.name+'_codebook'
                 ) #groups codebooks with codes_per_group codes of dimension vq_dim each
-        if self.affine_group_merge:
+        if self.merge_method == 'affine':
             self.merge_groups = tfkl.Dense(units=self.vq_dim,name=self.name+'_dense_merge_codes')
 
     def call(self,x):
@@ -106,9 +106,11 @@ class GumbelSoftmaxVQ(tfkl.Layer):
         quantized_x = tf.einsum('...gi,gid->...gd',hard_samples,self.codebook) #Get outputs of the codebook for each instance and group
         #Merge groups
         merged_quantized_x = self.concatenate(quantized_x)
-        if self.affine_group_merge:
+        if self.merge_method == 'affine':
             return self.merge_groups(merged_quantized_x)
-        else:
+        elif self.merge_method == 'concatenate':
+            return merged_quantized_x
+        elif self.merge_method is None:
             return quantized_x
 
     def get_config(self):
@@ -118,7 +120,7 @@ class GumbelSoftmaxVQ(tfkl.Layer):
             'vq_dim': self.vq_dim,
             'groups': self.groups,
             'temperature': self.temperature,
-            'affine_group_merge': self.affine_group_merge,
+            'merge_method': self.merge_method,
             'logits_as_input': self.logits_as_input,
             'diversity_loss_weight': self.diversity_loss_weight
         })

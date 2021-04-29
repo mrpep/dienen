@@ -53,11 +53,14 @@ class WANDBLogger(Callback):
         plot_lims = params.get('plot_lims', [None, None])
         test_data = params.get('test_data',None)
 
-        if type(test_data).__name__ == 'BatchGenerator':
-            x,y = test_data.__getitem__(0)
+        #if type(test_data).__name__ == 'BatchGenerator':
+        #    x,y = test_data.__getitem__(0)
+
+        x,y = test_data.__getitem__(0)
 
         out_names = params.get('out_layers',None)
         y_pred = predict_fn(x)
+
         for i in range(len(y_pred[0])): #i->instancia j-> activacion
             sample_plots = []
             for j in range(len(y_pred)):

@@ -17,11 +17,14 @@ class MSE(tfkl.Layer):
         if self.normalize:
             mse_error = mse_error/(self.offset + tf.abs(x[1])**self.lnorm)
         if self.reduce == 'mean':
-            return tf.reduce_mean(mse_error)
+            mse_error = tf.reduce_mean(mse_error)
         elif self.reduce == 'sum':
-            return tf.reduce_sum(mse_error)
+            mse_error = tf.reduce_sum(mse_error)
         else:
-            return mse_error
+            pass
+
+        self.add_metric(mse_error,name='mse_error')
+        return mse_error
 
     def get_config(self):
         config = super().get_config().copy()
@@ -83,6 +86,7 @@ class Wav2Vec2ContrastiveLoss(tfkl.Layer):
             negatives_mask = self.mask_different_audios*negatives_mask
 
         avg_negatives_per_positive = tf.reduce_sum(negatives_mask)/tf.reduce_sum(positives_mask)
+        self.add_metric(tf.reduce_sum(positives_mask),name='positives_mask_sum')
         self.add_metric(avg_negatives_per_positive,name='mean_distractors_per_positive')
 
         num = tf.reduce_sum(sim*positives_mask,axis=0)
