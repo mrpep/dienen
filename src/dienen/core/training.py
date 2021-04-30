@@ -8,7 +8,7 @@ import tensorflow as tf
 
 class TrainingNode(DienenNode):
     def __init__(self,config, modules=None, logger=None):
-        self.valid_nodes = ['loss','optimizer','schedule','n_epochs','workers','custom_fit','metrics','batch_size']
+        self.valid_nodes = ['loss','optimizer','schedule','n_epochs','workers','custom_fit','metrics','batch_size','steps_per_epoch']
         self.required_nodes = ['loss','optimizer']
         super().set_config(config)
         self.optimizer_weights = None
@@ -204,9 +204,11 @@ class TrainingNode(DienenNode):
                     validation_data = tuple(validation_data)
                 keras_model.fit(x=data[0],y=data[1],initial_epoch=from_epoch,epochs=n_epochs,
                     callbacks=cb_list, validation_data=validation_data, use_multiprocessing = use_multiprocessing,
-                    workers = n_workers, shuffle=False, batch_size=self.config.get('batch_size',None))
+                    workers = n_workers, shuffle=False, batch_size=self.config.get('batch_size',None), 
+                    steps_per_epoch = self.config.get('steps_per_epoch',None))
             else:
                 keras_model.fit(data,initial_epoch=from_epoch,epochs=n_epochs,
                     callbacks=cb_list, validation_data=validation_data, use_multiprocessing = use_multiprocessing,
-                    workers = n_workers, shuffle=False, batch_size=self.config.get('batch_size',None))
+                    workers = n_workers, shuffle=False, batch_size=self.config.get('batch_size',None), 
+                    steps_per_epoch = self.config.get('steps_per_epoch',None))
 

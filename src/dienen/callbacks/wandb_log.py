@@ -42,7 +42,8 @@ class WANDBLogger(Callback):
         self.epoch = 0
         self.loggers = loggers
         self.log_mapping = {'Spectrograms': self.log_spectrograms,
-                            'TrainMetrics': self.log_train_metrics}
+                            'TrainMetrics': self.log_train_metrics,
+                            'ValidationMetrics': self.log_val_metrics}
         
     def log_spectrograms(self, params, logs):
         inputs = [self.model.get_layer(l).output for l in params.get('in_layers',None)]
@@ -91,6 +92,11 @@ class WANDBLogger(Callback):
             wandb.log(logs_)
         else:
             wandb.log(logs_,step=self.step)
+
+    def log_val_metrics(self,params,logs):
+        metrics = self.model.evaluate(params['validation_data'],return_dict=True)
+        metrics = {'val_{}'.format(k): v for k,v in metrics.items()}
+        wandb.log(metrics,step=self.step)
         
     def on_epoch_end(self, batch, logs):
         for log_type, log_params in self.loggers.items():
