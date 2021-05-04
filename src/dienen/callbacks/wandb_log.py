@@ -94,9 +94,38 @@ class WANDBLogger(Callback):
             wandb.log(logs_,step=self.step)
 
     def log_val_metrics(self,params,logs):
-        metrics = self.model.evaluate(params['validation_data'],return_dict=True)
-        metrics = {'val_{}'.format(k): v for k,v in metrics.items()}
-        wandb.log(metrics,step=self.step)
+        if 'custom_metrics' in params:
+            from dienen.utils import get_modules, get_members_from_module
+            import inspect
+
+            metrics_module = params.get('metrics_module')
+            if not isinstance(metrics_module,list):
+                metrics_module = [metrics_module]
+
+            metrics_module = get_modules(metrics_module)
+            available_metrics = {}
+            for metricmod in metrics_module:
+                available_metrics.update(dict(get_members_from_module(metricmod,filters=[inspect.isclass,inspect.isfunction])))
+
+            model_outs = [[self.model.predict(x), y] for x,y in params['validation_data']]
+            y_pred = np.concatenate(np.array([x[0] for x in model_outs]))
+            y_true = np.concatenate(np.array([x[1] for x in model_outs]))
+            y_pred = y_pred[:len(params['validation_data'].idxs)]
+            y_true = y_true[:len(params['validation_data'].idxs)]
+
+            metric_results = {} 
+
+            for metric in params['custom_metrics']:
+                metric_type = metric.pop('type')
+                metric_cls = available_metrics[metric_type](**metric)
+                metric_results['val_{}'.format(metric_type)] = metric_cls.calculate(y_true,y_pred)
+
+            wandb.log(metric_results,step=self.step)
+
+        else:
+            metrics = self.model.evaluate(params['validation_data'],return_dict=True)
+            metrics = {'val_{}'.format(k): v for k,v in metrics.items()}
+            wandb.log(metrics,step=self.step)
         
     def on_epoch_end(self, batch, logs):
         for log_type, log_params in self.loggers.items():
