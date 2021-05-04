@@ -114,8 +114,8 @@ class WANDBLogger(Callback):
             y_true = y_true[:len(params['validation_data'].idxs)]
 
             metric_results = {} 
-
-            for metric in params['custom_metrics']:
+            params_metrics = copy.deepcopy(params['custom_metrics'])
+            for metric in params_metrics:
                 metric_type = metric.pop('type')
                 metric_cls = available_metrics[metric_type](**metric)
                 metric_results['val_{}'.format(metric_type)] = metric_cls.calculate(y_true,y_pred)
