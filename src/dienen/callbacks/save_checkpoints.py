@@ -171,7 +171,7 @@ class SaveCheckpoints(Callback):
         else:
             raise Exception("Unknown mode")
         
-        checkpoint_history = {'mode': mode, 'step': current_step}
+        checkpoint_history = {'mode': mode, 'step': current_step, 'epoch': self.epoch, 'intra_epoch': self.data.intra_epoch, 'intra_epoch_step': self.data.step_in_intra_epoch}
         checkpoint_history['time'] = datetime.now()
         
         if self.monitor_metric and self.current_metric:
@@ -231,6 +231,8 @@ class SaveCheckpoints(Callback):
         
     def on_batch_end(self, batch, logs):       
         if self.time_unit == 'step' and self.step%self.frequency == 0:
+            logs.update(self.model.metrics_log)
             self.current_metric = logs.get(self.monitor_metric, None)
             self.save(mode = 'step')
+
         self.step += 1

@@ -29,12 +29,6 @@ class WANDBLogger(Callback):
                         plot_lims:          [vmin, vmax] of the plt.imshow function called (limits of the color)
                     TrainMetrics supports:
                         prefix:             (optional) string which is appended at the beginning of the metric name when logging.
-
-
-
-
-
-
     """
     def __init__(self, loggers=None, wandb_run = None):
         self.wandb_run = wandb_run
@@ -44,18 +38,17 @@ class WANDBLogger(Callback):
         self.log_mapping = {'Spectrograms': self.log_spectrograms,
                             'TrainMetrics': self.log_train_metrics,
                             'ValidationMetrics': self.log_val_metrics}
+
+    def on_train_begin(self, logs):
+        self.model.metrics_log = {}
         
     def log_spectrograms(self, params, logs):
         inputs = [self.model.get_layer(l).output for l in params.get('in_layers',None)]
         outs = [self.model.get_layer(l).output for l in params.get('out_layers',None)]
         
-
         predict_fn = tf.keras.backend.function(inputs=inputs,outputs=outs)
         plot_lims = params.get('plot_lims', [None, None])
         test_data = params.get('test_data',None)
-
-        #if type(test_data).__name__ == 'BatchGenerator':
-        #    x,y = test_data.__getitem__(0)
 
         x,y = test_data.__getitem__(0)
 
@@ -92,6 +85,7 @@ class WANDBLogger(Callback):
             wandb.log(logs_)
         else:
             wandb.log(logs_,step=self.step)
+        return logs_
 
     def log_val_metrics(self,params,logs):
         if 'custom_metrics' in params:
@@ -121,25 +115,33 @@ class WANDBLogger(Callback):
                 metric_results['val_{}'.format(metric_type)] = metric_cls.calculate(y_true,y_pred)
 
             wandb.log(metric_results,step=self.step)
-
         else:
-            metrics = self.model.evaluate(params['validation_data'],return_dict=True)
-            metrics = {'val_{}'.format(k): v for k,v in metrics.items()}
-            wandb.log(metrics,step=self.step)
+            metric_results = self.model.evaluate(params['validation_data'],return_dict=True)
+            metric_results = {'val_{}'.format(k): v for k,v in metric_results.items()}
+            wandb.log(metric_results,step=self.step)
+        return metric_results
         
     def on_epoch_end(self, batch, logs):
+        logged_metrics = None
         for log_type, log_params in self.loggers.items():
             if (log_params['unit'] == 'epoch') and (log_params['freq'] % self.step == 0):
-                self.log_mapping[log_type](logs)
+               logged_metrics = self.log_mapping[log_type](logs)
 
         if ('TrainMetrics' in self.loggers) and len(logs)>0:
-            self.log_train_metrics(self.loggers['TrainMetrics'],logs)
+            logged_metrics = self.log_train_metrics(self.loggers['TrainMetrics'],logs)
+        if logged_metrics is not None:
+            logs.update(logged_metrics)
+
+        self.model.metrics_log.update(logs)
 
         self.epoch += 1
         
     def on_batch_end(self, batch, logs):
         for log_type, log_params in self.loggers.items():
             if (log_params['unit'] == 'step') and (self.step % int(log_params['freq']) == 0):
-                self.log_mapping[log_type](log_params, logs)
+                logged_metrics = self.log_mapping[log_type](log_params, logs)
+                if logged_metrics is not None:
+                    logs.update(logged_metrics)
+        self.model.metrics_log.update(logs)
 
         self.step += 1
