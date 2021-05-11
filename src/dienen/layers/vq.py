@@ -19,8 +19,18 @@ class VQLayer(tfkl.Layer):
         if self.mode == 'decode_indexs':
             return tf.gather(self.embeddings,tf.cast(ze,tf.int32))
         else:
-            ze_ = tf.expand_dims(ze,axis=-2) # (batch_size, 1, D)
-            distances = tf.norm(self.embeddings-ze_,axis=-1) # (batch_size, K) -> distancia de cada instancia a cada elemento del diccionario
+            #ze_ = tf.expand_dims(ze,axis=-2) # (batch_size, 1, D)
+            #distances = tf.norm(self.embeddings-ze_,axis=-1) # (batch_size, K) -> distancia de cada instancia a cada elemento del diccionario
+            original_shape = tf.shape(ze)
+            ze_ = tf.reshape(ze,(-1,original_shape[-1]))
+            
+            firstterm = tf.expand_dims(tf.norm(ze_,axis=-1)**2,axis=-1)
+            secondterm = tf.matmul(ze_,tf.transpose(self.embeddings))
+            thirdterm = tf.expand_dims(tf.norm(self.embeddings,axis=-1)**2,axis=0)
+
+            distances = firstterm - 2.0*secondterm + thirdterm
+            distances = tf.reshape(distances,original_shape)
+            
             k = tf.argmin(distances,axis=-1) # indice del elemento con menor distancia
             zq = tf.gather(self.embeddings,k) #elemento del diccionario con menor distancia
             straight_through = tfkl.Lambda(lambda x : x[1] + tf.stop_gradient(x[0] - x[1]), name="straight_through_estimator")([zq,ze]) #Devuelve zq pero propaga a ze
