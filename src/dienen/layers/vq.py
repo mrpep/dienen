@@ -29,7 +29,7 @@ class VQLayer(tfkl.Layer):
             thirdterm = tf.expand_dims(tf.norm(self.embeddings,axis=-1)**2,axis=0)
 
             distances = firstterm - 2.0*secondterm + thirdterm
-            distances = tf.reshape(distances,original_shape)
+            distances = tf.reshape(distances,tf.concat([original_shape[:-1],[self.k]],axis=0))
             
             k = tf.argmin(distances,axis=-1) # indice del elemento con menor distancia
             zq = tf.gather(self.embeddings,k) #elemento del diccionario con menor distancia
@@ -57,6 +57,9 @@ class VQLayer(tfkl.Layer):
             'mode': self.mode
         })
         return config
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
 
 class GumbelSoftmaxVQ(tfkl.Layer):
     def __init__(self, codes_per_group, vq_dim, groups=1,temperature=0.5,name=None,merge_method='affine',logits_as_input=False,diversity_loss_weight=0.1, diversity_loss='entropy'):
