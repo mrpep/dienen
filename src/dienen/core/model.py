@@ -120,7 +120,7 @@ class Model():
                         if self.logger:
                             self.logger.info('Layer {}: automatically set units as: {}'.format(out_name,self.output_shapes[i][0]))
         
-        nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config,training_strategy=self.training_strategy)
+        nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config,training_strategy=self.training_strategy,custom_model=self.config['Model'].get('custom_model',None),modules=self.modules)
         #nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config)
         self.core_model = nn
 
@@ -129,7 +129,7 @@ class Model():
         else:
             return nn.model
 
-    def fit(self, data = None, from_epoch = -1, validation_data = None):
+    def fit(self, data = None, from_epoch = -1, validation_data = None, from_step = 0):
         """
         Trains the model.
         data:               can be any object which is accepted by tf.keras.Model.fit()
@@ -155,7 +155,7 @@ class Model():
         else:
             print(self.core_model.model.summary())
        
-        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache,training_strategy=self.training_strategy)
+        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache,training_strategy=self.training_strategy, from_step = from_step)
         #self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache)
 
     def get_optimizer(self):

@@ -2,6 +2,8 @@ import networkx as nx
 from .layer import Layer
 import dienen.layers
 from dienen.config_processors.utils import single_elem_list_to_elem
+from dienen.utils import get_modules, get_members_from_module
+import inspect
 import tensorflow.keras.layers
 import copy
 import tensorflow as tf
@@ -17,7 +19,7 @@ class Architecture:
 	Processes a config with layers specification.
 	"""
     
-	def __init__(self,architecture_config,layer_modules=None, inputs=None, outputs=None, externals=None, processed_config=None, training_strategy=None):
+	def __init__(self,architecture_config,layer_modules=None, inputs=None, outputs=None, externals=None, processed_config=None, training_strategy=None, custom_model=None, modules=None):
 
 		self.architecture_config = architecture_config
 		self.processed_config = self.architecture_config.translate()
@@ -38,11 +40,13 @@ class Architecture:
 			layer_modules = [dienen.layers, tensorflow.keras.layers]
 
 		self.layer_modules = layer_modules
+		self.modules = modules
 		self.find_external_weights()
 		self.create_layers()
+		self.custom_model = custom_model
 
 		with training_strategy.scope():
-			self.model = self.make_network()
+			self.model = self.make_network(training_strategy)
 
 	def find_external_weights(self):
 		self.weights_to_assign = {}
@@ -112,7 +116,7 @@ class Architecture:
 		dependency_order = list(nx.topological_sort(reachable_subgraph))
 		return dependency_order
 
-	def make_network(self):
+	def make_network(self, training_strategy):
 		dependency_order = self.find_dependency_order(self.processed_config,self.inputs,self.outputs)
 		self.tensors = {}
 		shared_layers_counts = {}
@@ -152,8 +156,18 @@ class Architecture:
 
 		input_tensors = [self.tensors[in_tensor] for in_tensor in self.inputs]
 		output_tensors = [self.tensors[out_tensor] for out_tensor in self.outputs]
-		
-		model = tf.keras.Model(inputs=input_tensors,outputs=output_tensors)
+
+		if self.custom_model is None:
+			model = tf.keras.Model(inputs=input_tensors,outputs=output_tensors)
+		else:
+			available_modules = get_modules(self.modules)
+			available_cls = {}
+			for module in available_modules:
+				available_cls.update(get_members_from_module(module, filters=[inspect.isclass]))
+			model_cls = self.custom_model.pop('type')
+			model = available_cls[model_cls](inputs=input_tensors,outputs=output_tensors,**self.custom_model)
+			model.distributed_strategy = training_strategy
+
 		for layer_name,weights in self.weights_to_assign.items():
 			model.get_layer(layer_name).set_weights(weights)
 

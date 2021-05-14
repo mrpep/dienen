@@ -104,8 +104,8 @@ class WANDBLogger(Callback):
             model_outs = [[self.model.predict(x), y] for x,y in params['validation_data']]
             y_pred = np.concatenate(np.array([x[0] for x in model_outs]))
             y_true = np.concatenate(np.array([x[1] for x in model_outs]))
-            y_pred = y_pred[:len(params['validation_data'].idxs)]
-            y_true = y_true[:len(params['validation_data'].idxs)]
+            y_pred = y_pred[:len(params['validation_data']._index)]
+            y_true = y_true[:len(params['validation_data']._index)]
 
             metric_results = {} 
             params_metrics = copy.deepcopy(params['custom_metrics'])
