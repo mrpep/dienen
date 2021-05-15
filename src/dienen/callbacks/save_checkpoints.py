@@ -171,7 +171,11 @@ class SaveCheckpoints(Callback):
         else:
             raise Exception("Unknown mode")
              
-        checkpoint_history = {'mode': mode, 'step': self.step, 'epoch': self.epoch, 'intra_epoch': self.data.get_intra_epoch(), 'intra_epoch_step': self.data.get_step_in_intra_epoch()}
+        checkpoint_history = {'mode': mode, 'step': self.step, 'epoch': self.epoch, 
+                            'intra_epoch': self.data.get_intra_epoch(), 
+                            'intra_epoch_step': self.data.get_step_in_intra_epoch(), 
+                            'next_intra_epoch_step': self.data.get_next_intra_epoch_step()}
+                            
         checkpoint_history['time'] = datetime.now()
         
         if self.monitor_metric and self.current_metric:

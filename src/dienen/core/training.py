@@ -174,6 +174,8 @@ class TrainingNode(DienenNode):
         if self.optimizer_weights:
             keras_model.optimizer._create_all_weights(keras_model.trainable_variables)
             keras_model.optimizer.set_weights(self.optimizer_weights)
+        
+        keras_model.initial_step = from_step
 
         if calculate_initial_loss and validation_data:
             if self.logger:
