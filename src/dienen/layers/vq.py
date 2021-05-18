@@ -116,16 +116,16 @@ class GumbelSoftmaxVQ(tfkl.Layer):
             
         self.add_loss(diversity_loss)
         self.add_metric(diversity_loss, name='diversity_loss')
-        self.add_metric(self.temperature, name='gumbel_softmax_temperature')
         self.add_metric(self.diversity_loss_weight, name='diversity_loss_weight')
 
         if self.use_gumbel_noise:
             gumbel_softmax_distribution = tfp.distributions.RelaxedOneHotCategorical(self.temperature, logits=logits_per_group, 
                                                                         name=self.name+'_gumbel_softmax')
             softmax_samples = gumbel_softmax_distribution.sample() #Sample from gumbel-softmax distribution
+            self.add_metric(self.temperature, name='gumbel_softmax_temperature')
         else:
             softmax_samples = logits_per_group
-            
+
         hard_samples = tf.cast(tf.equal(softmax_samples, tf.reduce_max(softmax_samples, axis=-1, keepdims=True)),
                             softmax_samples.dtype) #Turn into hot vector
         hard_samples = tf.stop_gradient(hard_samples - softmax_samples) + softmax_samples #Straight-through estimator
