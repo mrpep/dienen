@@ -14,7 +14,7 @@ class VQLayer(tfkl.Layer):
                 initial_value=e_init(shape=(K, D), dtype="float32"),
                 trainable=self.trainable,
             )
-  
+
     def call(self, ze):
         if self.mode == 'decode_indexs':
             return tf.gather(self.embeddings,tf.cast(ze,tf.int32))
@@ -35,9 +35,12 @@ class VQLayer(tfkl.Layer):
             zq = tf.gather(self.embeddings,k) #elemento del diccionario con menor distancia
             straight_through = tfkl.Lambda(lambda x : x[1] + tf.stop_gradient(x[0] - x[1]), name="straight_through_estimator")([zq,ze]) #Devuelve zq pero propaga a ze
 
-            vq_loss = tf.reduce_mean((tf.stop_gradient(ze) - zq)**2) #Error entre encoder y diccionario propagado al diccionario
-            commit_loss = self.beta_commitment*tf.reduce_mean((ze - tf.stop_gradient(zq))**2) #Error entre encoder y diccionario propagado al encoder
+            #vq_loss =  #Error entre encoder y diccionario propagado al diccionario
+            #commit_loss = self.beta_commitment*tf.reduce_mean((ze - tf.stop_gradient(zq))**2) #Error entre encoder y diccionario propagado al encoder
 
+            vq_loss = tf.reduce_mean((tf.stop_gradient(ze) - zq)**2)
+            commit_loss = self.beta_commitment*tf.reduce_mean((ze - tf.stop_gradient(zq))**2)
+            
             self.add_loss(vq_loss)
             self.add_loss(commit_loss)
             self.add_metric(vq_loss, name='vq_loss')
@@ -62,7 +65,12 @@ class VQLayer(tfkl.Layer):
         return input_shape
 
 class GumbelSoftmaxVQ(tfkl.Layer):
-    def __init__(self, codes_per_group, vq_dim, groups=1,temperature=0.5,name=None,merge_method='affine',logits_as_input=False,diversity_loss_weight=0.1, diversity_loss='entropy'):
+    def __init__(self, codes_per_group, vq_dim, 
+                 groups=1,temperature=0.5,name=None,
+                 merge_method='affine',logits_as_input=False,
+                 diversity_loss_weight=0.1, diversity_loss='entropy',
+                 use_gumbel_noise=True):
+
         super(GumbelSoftmaxVQ, self).__init__(name=name)
         self.codes_per_group = codes_per_group
         self.vq_dim = vq_dim
@@ -72,12 +80,13 @@ class GumbelSoftmaxVQ(tfkl.Layer):
         self.logits_as_input = logits_as_input
         self.diversity_loss_type = diversity_loss
         self.diversity_loss_weight = tf.Variable(diversity_loss_weight,trainable=False)
+        self.use_gumbel_noise = use_gumbel_noise
 
     def build(self,input_shape):
         if not self.logits_as_input:
             self.logits_predictor = tfkl.Dense(units=self.codes_per_group*self.groups, name=self.name+'_logits_estimator')
-        self.reshape = tfkl.Reshape(target_shape=(input_shape[1:-1] + [self.groups,self.codes_per_group]))
-        self.concatenate = tfkl.Reshape(target_shape=(input_shape[1:-1] + [self.groups*self.vq_dim,]))
+        self.reshape = tfkl.Reshape(target_shape=(input_shape[1:-1] + tuple([self.groups,self.codes_per_group])))
+        self.concatenate = tfkl.Reshape(target_shape=(input_shape[1:-1] + tuple([self.groups*self.vq_dim,])))
         #e_init = tf.keras.initializers.VarianceScaling(distribution='uniform')
         e_init = tf.keras.initializers.RandomUniform(minval=0,maxval=1)
         self.codebook = tf.Variable(
@@ -110,9 +119,13 @@ class GumbelSoftmaxVQ(tfkl.Layer):
         self.add_metric(self.temperature, name='gumbel_softmax_temperature')
         self.add_metric(self.diversity_loss_weight, name='diversity_loss_weight')
 
-        gumbel_softmax_distribution = tfp.distributions.RelaxedOneHotCategorical(self.temperature, logits=logits_per_group, 
+        if self.use_gumbel_noise:
+            gumbel_softmax_distribution = tfp.distributions.RelaxedOneHotCategorical(self.temperature, logits=logits_per_group, 
                                                                         name=self.name+'_gumbel_softmax')
-        softmax_samples = gumbel_softmax_distribution.sample() #Sample from gumbel-softmax distribution
+            softmax_samples = gumbel_softmax_distribution.sample() #Sample from gumbel-softmax distribution
+        else:
+            softmax_samples = logits_per_group
+            
         hard_samples = tf.cast(tf.equal(softmax_samples, tf.reduce_max(softmax_samples, axis=-1, keepdims=True)),
                             softmax_samples.dtype) #Turn into hot vector
         hard_samples = tf.stop_gradient(hard_samples - softmax_samples) + softmax_samples #Straight-through estimator
@@ -135,6 +148,11 @@ class GumbelSoftmaxVQ(tfkl.Layer):
             'temperature': self.temperature,
             'merge_method': self.merge_method,
             'logits_as_input': self.logits_as_input,
-            'diversity_loss_weight': self.diversity_loss_weight
+            'diversity_loss_weight': self.diversity_loss_weight,
+            'use_gumbel_noise': self.use_gumbel_noise
         })
         return config
+
+    def compute_output_shape(self,input_shape):
+        output_shape = input_shape[:-1] + tuple([self.vq_dim])
+        return output_shape
