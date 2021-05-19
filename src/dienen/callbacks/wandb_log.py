@@ -5,6 +5,8 @@ import pandas as pd
 import copy
 import wandb
 import tensorflow as tf
+from scipy.special import logit, expit
+import joblib
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -106,6 +108,24 @@ class WANDBLogger(Callback):
             y_true = np.concatenate(np.array([x[1] for x in model_outs]))
             y_pred = y_pred[:len(params['validation_data']._index)]
             y_true = y_true[:len(params['validation_data']._index)]
+
+            corrected_logit = None
+
+            if 'train_priors' in params:
+                if isinstance(params['train_priors'],str):
+                    train_priors = joblib.load(Path(params['train_priors']).expanduser())
+                elif isinstance(params['train_priors'],float):
+                    train_priors = [params['train_priors']]*y_pred.shape[-1]
+                corrected_logit = logit(y_pred) - logit(np.array(train_priors))[np.newaxis,:]
+            if 'validation_priors' in params:
+                if isinstance(params['validation_priors'],str):
+                    validation_priors = joblib.load(Path(params['validation_priors']).expanduser())
+                elif isinstance(params['validation_priors'],float):
+                    validation_priors = [params['validation_priors']]*y_pred.shape[-1]
+                corrected_logit = corrected_logit + logit(np.array(validation_priors))[np.newaxis,:]
+
+            if corrected_logit is not None:
+                y_pred = expit(corrected_logit)
 
             metric_results = {} 
             params_metrics = copy.deepcopy(params['custom_metrics'])
