@@ -9,6 +9,8 @@ from scipy.special import logit, expit
 import joblib
 
 import matplotlib.pyplot as plt
+import seaborn as sns
+
 import numpy as np
 
 class WANDBLogger(Callback):
@@ -131,9 +133,41 @@ class WANDBLogger(Callback):
             params_metrics = copy.deepcopy(params['custom_metrics'])
             for metric in params_metrics:
                 metric_type = metric.pop('type')
-                metric_cls = available_metrics[metric_type](**metric)
-                metric_results['val_{}'.format(metric_type)] = metric_cls.calculate(y_true,y_pred)
+                if inspect.isclass(available_metrics[metric_type]):
+                    metric_cls = available_metrics[metric_type](**metric)
+                    mres = metric_cls(y_true,y_pred)
+                elif inspect.isfunction(available_metrics[metric_type]):
+                    mres = available_metrics[metric_type](y_true,y_pred)
+                else:
+                    raise Exception('Unrecognized metric')
 
+                for k,v in mres.items():
+                    if v.ndim == 0:
+                        metric_results['val_{}'.format(k)] = v
+                    elif v.ndim == 1:
+                        labels = None
+                        if 'labels' in params:
+                            if isinstance(params['labels'],str):
+                                labels = joblib.load(Path(params['labels']).expanduser())
+                            else:
+                                labels = params['labels']
+                        if len(v)>100:
+                            for i in range(len(v)//100):
+                                plt.figure(figsize=(20,10))
+                                sns.barplot(x=labels[i*100:(i+1)*100], y=v[i*100:(i+1)*100])
+                                plt.xticks(rotation=90)
+                                wandb.log({'val_{}_{}'.format(k,i): wandb.Image(plt)},step=self.step)
+                            if len(v)%100 > 0:
+                                plt.figure(figsize=(20,10))
+                                sns.barplot(x=labels[100*(len(v)//100):], y=v[100*(len(v)//100):])
+                                plt.xticks(rotation=90)
+                                wandb.log({'val_{}_{}'.format(k,len(v)//100): wandb.Image(plt)},step=self.step)
+                        else:
+                            plt.figure(figsize=(20,10))
+                            sns.barplot(x=labels, y=v)
+                            plt.xticks(rotation=90)
+                            wandb.log({'val_{}'.format(k): wandb.Image(plt)},step=self.step)
+                        
             wandb.log(metric_results,step=self.step)
         else:
             metric_results = self.model.evaluate(params['validation_data'],return_dict=True)
