@@ -115,10 +115,13 @@ class GumbelSoftmaxVQ(tfkl.Layer):
             diversity_loss = self.diversity_loss_weight*tf.reduce_mean(hard_probs*tf.math.log(hard_probs+1e-12)) #Entropy of that mean softmax
         elif self.diversity_loss_type == 'perplexity':
             diversity_loss = self.diversity_loss_weight*perplexity
+        else:
+            diversity_loss = None
             
-        self.add_loss(diversity_loss)
-        self.add_metric(diversity_loss, name='diversity_loss')
-        self.add_metric(self.diversity_loss_weight, name='diversity_loss_weight')
+        if diversity_loss is not None:
+            self.add_loss(diversity_loss)
+            self.add_metric(diversity_loss, name='diversity_loss')
+            self.add_metric(self.diversity_loss_weight, name='diversity_loss_weight')
 
         if self.use_gumbel_noise:
             gumbel_softmax_distribution = tfp.distributions.RelaxedOneHotCategorical(self.temperature, logits=logits_per_group, 
