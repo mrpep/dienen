@@ -81,6 +81,8 @@ class GumbelSoftmaxVQ(tfkl.Layer):
         self.diversity_loss_type = diversity_loss
         self.diversity_loss_weight = tf.Variable(diversity_loss_weight,trainable=False)
         self.use_gumbel_noise = use_gumbel_noise
+        self.codebook_weight = tf.Variable(1.0,trainable=False,name='codebook_weight')
+        self.residual_weight = tf.Variable(0.0,trainable=False,name='residual_weight')
 
     def build(self,input_shape):
         if not self.logits_as_input:
@@ -133,11 +135,25 @@ class GumbelSoftmaxVQ(tfkl.Layer):
         #Merge groups
         merged_quantized_x = self.concatenate(quantized_x)
         if self.merge_method == 'affine':
-            return self.merge_groups(merged_quantized_x)
+            return self.residual_weight*x + self.codebook_weight*self.merge_groups(merged_quantized_x)
         elif self.merge_method == 'concatenate':
-            return merged_quantized_x
+            return self.residual_weight*x + self.codebook_weight*merged_quantized_x
+        elif self.merge_method == 'sum':
+            return tf.reduce_sum(quantized_x,axis=2)
         elif self.merge_method is None:
-            return quantized_x
+            return self.residual_weight*x + self.codebook_weight*quantized_x
+
+    def get_codebook_indices(self,x):
+        if self.logits_as_input:
+            logits = x
+        else:
+            logits = self.logits_predictor(x) #Dense layer to predict logits
+        logits_per_group = self.reshape(logits) #Reshape to the groups
+        softmax_vals = tf.keras.activations.softmax(logits_per_group, axis=-1)
+
+        hard_code_pred = tf.cast(tf.equal(softmax_vals,tf.reduce_max(softmax_vals,axis=-1,keepdims=True)),tf.float32) #These are the predictions using argmax
+        
+        return hard_code_pred
 
     def get_config(self):
         config = super().get_config().copy()
