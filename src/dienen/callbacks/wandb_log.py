@@ -105,7 +105,14 @@ class WANDBLogger(Callback):
             for metricmod in metrics_module:
                 available_metrics.update(dict(get_members_from_module(metricmod,filters=[inspect.isclass,inspect.isfunction])))
 
+            params_metrics = copy.deepcopy(params['custom_metrics'])
+
+            codebook_layers = list(set([m['codebook_layer'] for m in params_metrics if 'Codebook' in m['type']]))
+            codebook_layers = {c: self.model.get_layer(c) for c in codebook_layers}
+            codebook_layers_weights = {cl_name: {v.name: w for v, w in zip(cl.variables, cl.get_weights())} for cl_name, cl in codebook_layers.items()}
+
             model_outs = [[self.model.predict(x), y] for x,y in params['validation_data']]
+
             y_pred = np.concatenate(np.array([x[0] for x in model_outs]))
             y_true = np.concatenate(np.array([x[1] for x in model_outs]))
             y_pred = y_pred[:len(params['validation_data']._index)]
@@ -130,11 +137,15 @@ class WANDBLogger(Callback):
                 y_pred = expit(corrected_logit)
 
             metric_results = {} 
-            params_metrics = copy.deepcopy(params['custom_metrics'])
+
             for metric in params_metrics:
                 metric_type = metric.pop('type')
                 if inspect.isclass(available_metrics[metric_type]):
                     metric_cls = available_metrics[metric_type](**metric)
+                    if 'Codebook' in metric_type:
+                        metric_cls.codebook_layers = codebook_layers
+                        metric_cls.validation_data = params['validation_data']
+                        metric_cls.model = self.model
                     mres = metric_cls(y_true,y_pred)
                 elif inspect.isfunction(available_metrics[metric_type]):
                     mres = available_metrics[metric_type](y_true,y_pred)
@@ -164,9 +175,20 @@ class WANDBLogger(Callback):
                                 wandb.log({'val_{}_{}'.format(k,len(v)//100): wandb.Image(plt)},step=self.step)
                         else:
                             plt.figure(figsize=(20,10))
-                            sns.barplot(x=labels, y=v)
+                            if len(labels) == len(v):
+                                sns.barplot(x=labels, y=v)
+                            else:
+                                sns.barplot(x=np.arange(len(v)),y=v)
                             plt.xticks(rotation=90)
                             wandb.log({'val_{}'.format(k): wandb.Image(plt)},step=self.step)
+                    elif v.ndim == 2:
+                        from IPython import embed
+                        embed()
+                    elif v.ndim == 3:
+                        for i, v_i in enumerate(v):
+                            plt.figure(figsize=(10,10))
+                            plt.imshow(v_i,aspect='auto',origin='lower')
+                            wandb.log({'val_{}_{}'.format(k,i): wandb.Image(plt)},step=self.step)
                         
             wandb.log(metric_results,step=self.step)
         else:
