@@ -79,6 +79,7 @@ class Model():
             self.logger.debug("Physical GPUs: {}. Logical GPUs: {}".format(len(gpus), len(logical_gpus)))
 
         self.externals = self.config['Model'].get('External', None)
+        self.validation_data = None
 
     def build(self, return_tensors=False, processed_config=None,input_names=None,output_names=None):
         """
