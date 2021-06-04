@@ -142,7 +142,7 @@ class GumbelSoftmaxVQ(tfkl.Layer):
         elif self.merge_method == 'concatenate':
             return self.residual_weight*x + self.codebook_weight*merged_quantized_x
         elif self.merge_method == 'sum':
-            return tf.reduce_sum(quantized_x,axis=2)
+            return self.residual_weight*x + self.codebook_weight*tf.reduce_sum(quantized_x,axis=2)
         elif self.merge_method is None:
             return self.residual_weight*x + self.codebook_weight*quantized_x
 
