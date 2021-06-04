@@ -87,6 +87,8 @@ class CodebookWarmupV2(Callback):
             cb_w[-2] = np.float32(0.0)
             cb_w[-1] = np.float32(1.0)
             self.codebook_layer.set_weights(cb_w)
+            from IPython import embed
+            embed()
         
     def on_batch_end(self,batch,logs):
         if self.step == self.encoder_pretrain_steps:
@@ -112,8 +114,6 @@ class CodebookWarmupV2(Callback):
 
     def on_epoch_end(self,epoch,logs):
         pass
-
-
 
 class CodebookWarmup(Callback):
     def __init__(self, pretrain_steps=15000, warmup_steps=5000, codebook_layer=None,estimation_points=2000):
