@@ -87,16 +87,17 @@ class CodebookWarmupV2(Callback):
             cb_w[-2] = np.float32(0.0)
             cb_w[-1] = np.float32(1.0)
             self.codebook_layer.set_weights(cb_w)
-            from IPython import embed
-            embed()
         
     def on_batch_end(self,batch,logs):
         if self.step == self.encoder_pretrain_steps:
+            print('Begin codebook training')
             #Initialize codebook and activate it:
             cb_w = self.codebook_layer.get_weights()
             if self.codebook_init == 'pca':
                 codebook_weights = self.pca_init()
+
             cb_w[0] = codebook_weights
+            cb_w[1] = np.reshape(np.transpose(codebook_weights,(2,0,1)),(cb_w[1].shape))
             cb_w[-2] = np.float32(1.0)
             cb_w[-1] = np.float32(0.0)
             self.codebook_layer.set_weights(cb_w)
@@ -106,6 +107,7 @@ class CodebookWarmupV2(Callback):
                 if l.name != self.codebook_layer.name:
                     l.trainable = False
         elif self.step == self.encoder_pretrain_steps + self.codebook_only_train_steps:
+            print('Unfreeze layers')
             #Restore trainable states
             for l, t in zip(self.model.layers, self.original_trainable_states):
                 l.trainable = t
