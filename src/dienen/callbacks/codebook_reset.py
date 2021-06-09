@@ -81,7 +81,8 @@ class CodebookWarmupV2(Callback):
 
     def on_train_begin(self,logs):
         self.codebook_layer = self.model.get_layer(self.codebook_layer)
-        if self.encoder_pretrain_steps > 0:
+        if self.encoder_pretrain_steps > 0 and self.step == 0:
+            print('Training encoder only')
             #Skip quantization layer:
             cb_w = self.codebook_layer.get_weights()
             cb_w[-2] = np.float32(0.0)
