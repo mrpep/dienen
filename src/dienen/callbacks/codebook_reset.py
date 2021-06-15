@@ -79,15 +79,32 @@ class CodebookWarmupV2(Callback):
 
         return codebook
 
+    def kmeans_init(self):
+        codebook_layer_in = self.codebook_layer.input
+        n_batches = self.estimation_points//self.data.batch_size
+        pred_fn = tf.keras.backend.function(inputs=self.model.inputs,outputs=[codebook_layer_in])
+        encoded_data = [pred_fn(self.init_dataset.__getitem__(i)[0])[0] for i in range(n_batches)]
+        encoded_data = np.concatenate(encoded_data)
+        encoded_data = np.reshape(encoded_data,(-1,encoded_data.shape[-1]))
+
+        clusters = []
+        group_dim = self.codebook_layer.d // self.codebook_layer.groups
+        for i in range(self.codebook_layer.groups):
+            kmeans_model = MiniBatchKMeans(n_clusters = self.codebook_layer.k)
+            kmeans_model.fit(encoded_data[:,i*group_dim:(i+1)*group_dim])
+            clusters.append(kmeans_model.cluster_centers_)
+
+        return np.array(clusters)
+
     def on_train_begin(self,logs):
         self.codebook_layer = self.model.get_layer(self.codebook_layer)
+        cb_w = self.codebook_layer.get_weights()
         if self.encoder_pretrain_steps > 0 and self.step == 0:
-            print('Training encoder only')
             #Skip quantization layer:
-            cb_w = self.codebook_layer.get_weights()
             cb_w[-2] = np.float32(0.0)
             cb_w[-1] = np.float32(1.0)
             self.codebook_layer.set_weights(cb_w)
+            print('Training encoder only')
         
     def on_batch_end(self,batch,logs):
         if self.step == self.encoder_pretrain_steps:
@@ -96,18 +113,23 @@ class CodebookWarmupV2(Callback):
             cb_w = self.codebook_layer.get_weights()
             if self.codebook_init == 'pca':
                 codebook_weights = self.pca_init()
+            if self.codebook_init == 'kmeans':
+                codebook_weights = self.kmeans_init()
 
             cb_w[0] = codebook_weights
-            cb_w[1] = np.reshape(np.transpose(codebook_weights,(2,0,1)),(cb_w[1].shape))
+            if type(self.codebook_layer).__name__ == 'GumbelSoftmaxVQ':
+                cb_w[1] = np.reshape(np.transpose(codebook_weights,(2,0,1)),(cb_w[1].shape))
             cb_w[-2] = np.float32(1.0)
             cb_w[-1] = np.float32(0.0)
             self.codebook_layer.set_weights(cb_w)
             #Freeze other layers:
-            self.original_trainable_states = [l.trainable for l in self.model.layers]
-            for l in self.model.layers:
-                if l.name != self.codebook_layer.name:
-                    l.trainable = False
-        elif self.step == self.encoder_pretrain_steps + self.codebook_only_train_steps:
+            if self.codebook_only_train_steps > 0:
+                print('Freezing layers')
+                self.original_trainable_states = [l.trainable for l in self.model.layers]
+                for l in self.model.layers:
+                    if l.name != self.codebook_layer.name:
+                        l.trainable = False
+        elif (self.step == self.encoder_pretrain_steps + self.codebook_only_train_steps) and self.codebook_only_train_steps > 0:
             print('Unfreeze layers')
             #Restore trainable states
             for l, t in zip(self.model.layers, self.original_trainable_states):
