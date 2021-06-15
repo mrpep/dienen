@@ -13,8 +13,10 @@ class VQLayer(tfkl.Layer):
         self.mode = mode
         self.embeddings = tf.Variable(
                 initial_value=e_init(shape=(groups, K, D//groups), dtype="float32"),
-                trainable=self.trainable,
+                trainable=self.trainable, name='codebook'
             )
+        self.codebook_weight = tf.Variable(1.0,trainable=False,name='codebook_weight')
+        self.residual_weight = tf.Variable(0.0,trainable=False,name='residual_weight')
 
     def call(self, ze):
         if self.mode == 'decode_indexs':
@@ -39,8 +41,8 @@ class VQLayer(tfkl.Layer):
 
             straight_through = tfkl.Lambda(lambda x : x[1] + tf.stop_gradient(x[0] - x[1]), name="straight_through_estimator")([zq,ze]) #Devuelve zq pero propaga a ze
 
-            vq_loss = tf.reduce_mean((tf.stop_gradient(ze) - zq)**2)
-            commit_loss = self.beta_commitment*tf.reduce_mean((ze - tf.stop_gradient(zq))**2)
+            vq_loss = self.codebook_weight*tf.reduce_mean((tf.stop_gradient(ze) - zq)**2)
+            commit_loss = self.codebook_weight*self.beta_commitment*tf.reduce_mean((ze - tf.stop_gradient(zq))**2)
             
             self.add_loss(vq_loss)
             self.add_loss(commit_loss)
@@ -48,7 +50,7 @@ class VQLayer(tfkl.Layer):
             self.add_metric(tf.reduce_mean(tf.norm(ze,axis=-1)),name='ze_norm')
             self.add_metric(tf.reduce_mean(tf.norm(zq,axis=-1)),name='zq_norm')
             if self.mode == 'quantize':
-                return straight_through
+                return ze*self.residual_weight + self.codebook_weight*straight_through
             elif self.mode == 'return_indexs':
                 return k
 
@@ -65,6 +67,19 @@ class VQLayer(tfkl.Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
+
+    def get_codebook_indices(self,ze):
+        original_shape = tf.shape(ze)
+        ze_ = tf.reshape(ze,(-1,self.groups,original_shape[-1]//self.groups))
+            
+        firstterm = tf.expand_dims(tf.norm(ze_,axis=-1)**2,axis=-1)
+        secondterm = tf.einsum('ijk,jlk->ijl',ze_,self.embeddings)
+        thirdterm = tf.expand_dims(tf.norm(self.embeddings,axis=-1)**2,axis=0)
+
+        distances = firstterm - 2.0*secondterm + thirdterm
+        distances = tf.reshape(distances,tf.concat([original_shape[:-1],distances.shape[-2:]],axis=0))
+            
+        return tf.argmin(distances,axis=-1)
 
 class GumbelSoftmaxVQ(tfkl.Layer):
     def __init__(self, codes_per_group, vq_dim, 
