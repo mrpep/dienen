@@ -3,7 +3,7 @@ import joblib
 from .utils import layerlist_to_layerdict, assign_names_and_inputs, find_name
 from kahnfigh import Config, shallow_to_deep, deep_to_shallow, shallow_to_original_keys
 import networkx as nx
-from ruamel_yaml import YAML
+from ruamel.yaml import YAML
 
 def new_nodes_to_config(new_nodes, name):
     if len(new_nodes) == 1:

@@ -6,7 +6,7 @@ from dienen.config_processors.utils import set_config_parameters
 from dienen.utils import get_config, get_available_gpus
 from dienen.core.file import load_weights
 
-from ruamel_yaml import YAML
+from ruamel.yaml import YAML
 
 import copy
 from datetime import datetime
