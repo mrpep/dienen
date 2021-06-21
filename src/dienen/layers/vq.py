@@ -5,18 +5,29 @@ import tensorflow_probability as tfp
 class VQLayer(tfkl.Layer):
     def __init__(self,K,D,groups=1,beta_commitment = 2.5,mode='quantize',trainable=True,name=None):
         super(VQLayer, self).__init__(name=name)
-        e_init = tf.keras.initializers.VarianceScaling(distribution='uniform')
         self.k = K
         self.d = D
         self.groups = groups
         self.beta_commitment = beta_commitment
         self.mode = mode
-        self.embeddings = tf.Variable(
-                initial_value=e_init(shape=(groups, K, D//groups), dtype="float32"),
-                trainable=self.trainable, name='codebook'
-            )
-        self.codebook_weight = tf.Variable(1.0,trainable=False,name='codebook_weight')
-        self.residual_weight = tf.Variable(0.0,trainable=False,name='residual_weight')
+
+    def build(self,input_shape):
+        e_init = tf.keras.initializers.VarianceScaling(distribution='uniform')
+        self.embeddings = self.add_weight(name='codebook', 
+                                         shape=(self.groups, self.k, self.d//self.groups),
+                                         dtype="float32",
+                                         initializer=e_init,
+                                         trainable=self.trainable)
+        self.codebook_weight = self.add_weight(name='codebook_weight',
+                                               shape=(),
+                                               dtype="float32",
+                                               initializer=tf.keras.initializers.Ones(),
+                                               trainable=False)
+        self.residual_weight = self.add_weight(name='residual_weight',
+                                               shape=(),
+                                               dtype="float32",
+                                               initializer=tf.keras.initializers.Zeros(),
+                                               trainable=False)
 
     def call(self, ze):
         if self.mode == 'decode_indexs':
