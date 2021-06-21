@@ -56,16 +56,19 @@ class WANDBLogger(Callback):
         test_data = params.get('test_data',None)
         log_y = params.get('log_gt',True)
         join_by = params.get('join_by', None)
+
+        test_data.step = 0
+        test_data.intraepoch_step = 0
+
         x,y = test_data.__getitem__(0)
         sr = params.get('sr',16000)
 
         y_pred = predict_fn(x)
         n_samples = y_pred[0].shape[0]
-
         batch_data = test_data.data.iloc[:n_samples].reset_index()
 
         if join_by is not None:
-            for g in batch_data[join_by].unique():
+            for i,g in enumerate(batch_data[join_by].unique()):
                 g_data = batch_data.loc[batch_data[join_by] == g]
                 max_samples = g_data.end.max()
                 g_audio = np.zeros((max_samples,))
@@ -76,9 +79,9 @@ class WANDBLogger(Callback):
                 if isinstance(sr, int):
                     sr_i = sr
                 else:
-                    sr_i = g_data.iloc[0][sr]
-                print('Logging audio')
-                wandb.log({g: wandb.Audio(g_audio, caption=g, sample_rate=sr_i)})
+                    sr_i = int(g_data.iloc[0][sr])
+
+                wandb.log({g.split('/')[-1]: wandb.Audio(g_audio, caption=g.split('/')[-1], sample_rate=sr_i)})
   
     def log_spectrograms(self, params, logs):
         inputs = [self.model.get_layer(l).output for l in params.get('in_layers',None)]
