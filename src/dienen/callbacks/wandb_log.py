@@ -41,11 +41,45 @@ class WANDBLogger(Callback):
         self.loggers = loggers
         self.log_mapping = {'Spectrograms': self.log_spectrograms,
                             'TrainMetrics': self.log_train_metrics,
-                            'ValidationMetrics': self.log_val_metrics}
+                            'ValidationMetrics': self.log_val_metrics,
+                            'Audios': self.log_audios}
 
     def on_train_begin(self, logs):
         self.model.metrics_log = {}
+
+    def log_audios(self,params,logs):
+        inputs = [self.model.get_layer(l).output for l in params.get('in_layers',None)]
+        outs = [self.model.get_layer(l).output for l in params.get('out_layers',None)]
         
+        predict_fn = tf.keras.backend.function(inputs=inputs,outputs=outs)
+
+        test_data = params.get('test_data',None)
+        log_y = params.get('log_gt',True)
+        join_by = params.get('join_by', None)
+        x,y = test_data.__getitem__(0)
+        sr = params.get('sr',16000)
+
+        y_pred = predict_fn(x)
+        n_samples = y_pred[0].shape[0]
+
+        batch_data = test_data.data.iloc[:n_samples].reset_index()
+
+        if join_by is not None:
+            for g in batch_data[join_by].unique():
+                g_data = batch_data.loc[batch_data[join_by] == g]
+                max_samples = g_data.end.max()
+                g_audio = np.zeros((max_samples,))
+                for logid, row in g_data.iterrows():
+                    duration = int(row['end']) - int(row['start'])
+                    window = np.concatenate([np.linspace(0,1,duration//2),np.linspace(1, 0,duration - duration//2)])
+                    g_audio[int(row['start']):int(row['end'])] = g_audio[int(row['start']):int(row['end'])] + window*y_pred[0][int(logid)]
+                if isinstance(sr, int):
+                    sr_i = sr
+                else:
+                    sr_i = g_data.iloc[0][sr]
+                print('Logging audio')
+                wandb.log({g: wandb.Audio(g_audio, caption=g, sample_rate=sr_i)})
+  
     def log_spectrograms(self, params, logs):
         inputs = [self.model.get_layer(l).output for l in params.get('in_layers',None)]
         outs = [self.model.get_layer(l).output for l in params.get('out_layers',None)]
