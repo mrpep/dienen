@@ -400,6 +400,9 @@ class Model():
                 layer = self.core_model.model.get_layer(k)
                 layer.set_weights(v[0])
 
+    def summary(self):
+        return self.core_model.model.summary()
+
     def load_weights(self,strategy='min'):
         """
         Reads the checkpoints metadata saved, and automatically selects the best weights and sets them for the model.
