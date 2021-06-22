@@ -75,6 +75,18 @@ class BooleanLayer(tfkl.Layer):
         })
         return config
 
+class CreateMask(tfkl.Layer):
+    def __init__(self,criteria='min',name=None,trainable=False):
+        super(CreateMask,self).__init__(name=name)
+        self.criteria = criteria
+
+    def build(self,input_shape):
+        self.axis_to_reduce = [-i-1 for i in range(len(input_shape)-2)]
+
+    def call(self,x):
+        if self.criteria == 'min':
+            return 1.0 - tf.cast(tf.reduce_all(x==tf.reduce_min(x),axis=self.axis_to_reduce),tf.float32)
+
 class Divide(tfkl.Layer):
     def __init__(self,name=None,trainable=False,offset=1e-9):
         super(Divide,self).__init__(name=name)
@@ -233,6 +245,19 @@ class Log(tfkl.Layer):
 
     def compute_output_shape(self,input_shape):
         return input_shape
+
+class MaskedPooling1D(tfkl.Layer):
+    def __init__(self,name=None):
+        super(MaskedPooling1D,self).__init__(name=name)
+
+    def call(self,x):
+        signal = x[0]
+        mask = tf.expand_dims(x[1],axis=-1)
+        return tf.reduce_sum(signal*mask,axis=1)/(tf.reduce_sum(mask,axis=[-1,-2]))
+
+    def get_config(self):
+        config = super().get_config().copy()
+        return config    
 
 class Normalize(tfkl.Layer):
     def __init__(self,normalization_type='mvn',name=None):
