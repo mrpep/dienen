@@ -357,8 +357,12 @@ def external_unfold(name,config,metadata=None,logger=None):
 
     if isinstance(external_models[external_model_name],str):
         external_model = joblib.load(external_models[external_model_name])
-        external_model_architecture = external_model['unfolded_config']
-        external_hierarchy = external_model['hierarchy']
+        if isinstance(external_model,dict):
+            external_model_architecture = external_model['unfolded_config']
+            external_hierarchy = external_model['hierarchy']
+        elif isinstance(external_model,dienen.core.model.Model):
+            external_model_architecture = external_model.core_model.processed_config
+            external_hierarchy = external_model.architecture_config.hierarchy
     elif isinstance(external_models[external_model_name],dienen.core.model.Model):
         external_model = external_models[external_model_name]
         external_model_architecture = external_model.core_model.processed_config

@@ -54,7 +54,11 @@ class Architecture:
 			external_weights = {}
 			for model_name, model_path in self.externals['Models'].items():
 				if isinstance(model_path,str):
-					external_weights[model_name] = joblib.load(model_path)['weights']
+					external_model = joblib.load(model_path)
+					if isinstance(external_model,dict):
+						external_weights[model_name] = external_model['weights']
+					elif isinstance(external_model,dienen.core.model.Model):
+						external_weights[model_name] = external_model.get_weights()
 				else:
 					external_weights[model_name] = model_path.get_weights()
 

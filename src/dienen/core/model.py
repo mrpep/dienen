@@ -16,6 +16,8 @@ import tensorflow as tf
 from kahnfigh import Config, shallow_to_deep, shallow_to_original_keys
 from numba import cuda
 
+import warnings
+
 class Model():
     def __init__(self,config,logger=None):
         """
@@ -65,13 +67,13 @@ class Model():
                         raise Exception('There are only {} available GPUs and the {} was requested'.format(len(gpus),self.gpu_device))
                     tf.config.experimental.set_visible_devices(gpus[self.gpu_device], 'GPU')
                 except RuntimeError as e:
-                    raise Exception('Failed setting GPUs. {}'.format(e))
+                    warnings.warn('Failed setting GPUs. {}'.format(e))
             if gpu_growth:
                 for gpu in gpus:
                     try:
                         tf.config.experimental.set_memory_growth(gpu, gpu_growth)
                     except RuntimeError as e:
-                        raise Exception('Failed setting GPU dynamic memory allocation. {}'.format(e))
+                        warnings.warn('Failed setting GPU dynamic memory allocation. {}'.format(e))
 
             logical_gpus = tf.config.experimental.list_logical_devices('GPU')
 
