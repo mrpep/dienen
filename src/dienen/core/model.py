@@ -15,6 +15,8 @@ from pathlib import Path
 import tensorflow as tf
 from kahnfigh import Config, shallow_to_deep, shallow_to_original_keys
 from numba import cuda
+import numpy as np
+import tqdm
 
 import warnings
 
@@ -269,10 +271,61 @@ class Model():
                 else:
                     pass
             predict_fn = tf.keras.backend.function(inputs = inputs,outputs=outputs)
-            activations = predict_fn(data)
-            activations = {name: act for name, act in zip(output_names,activations)}
+            if not isinstance(data,np.ndarray):
+                activations = [predict_fn(x_i) for x_i, y_i in tqdm.tqdm(data)]
+                activations = {k: np.concatenate([act_i[i] for act_i in activations],axis=0)[:len(data.data)] for i,k in enumerate(output_names)}
+            else:
+                activations = predict_fn(data)
+                activations = {name: act for name, act in zip(output_names,activations)}
             return activations
 
+    def predict_generator(self,data,output='output',batch_size=32):
+        if output == 'output':
+            raise Exception('predict_generator method still not implemented for output: output')
+        else:
+            if output == 'all':
+                output = [layer.name for layer in self.core_model.model.layers]
+            else: 
+                if not isinstance(output,list):
+                    output = [output]
+            
+            outputs = []
+            output_names = []
+            inputs = []
+            input_names = []
+            for layer in self.core_model.model.layers:
+                if hasattr(layer,'is_placeholder'):
+                    inputs.append(layer.output)
+                    input_names.append(layer.name)
+                elif layer.name in output:
+                    outputs.append(layer.output)
+                    output_names.append(layer.name)
+                else:
+                    pass
+            
+            predict_fn = tf.keras.backend.function(inputs = inputs,outputs=outputs)
+            if not isinstance(data,np.ndarray):
+                class GeneratorLen(object):
+                    def __init__(self, gen):
+                        self.gen = gen
+
+                    def __len__(self): 
+                        return len(self.gen)
+
+                    def __getitem__(self,i):
+                        x_i, y_i = data[i]
+                        y_i = predict_fn(x_i)
+                        idxs = self.gen.data.index[i*self.gen.batch_size:(i+1)*self.gen.batch_size]
+                        return {'{}/{}'.format(idx,k): v[i] for k,v in zip(output_names,y_i) for i, idx in enumerate(idxs)}
+                    
+                    def get_indexs(self,i):
+                        return self.gen.data.index[i*self.gen.batch_size:(i+1)*self.gen.batch_size]
+                
+            else:
+                raise Exception('predict_generator not implemented for non-generator data')
+
+        return GeneratorLen(data)
+                
     def save_model(self,filename,save_optimizer=False,extra_data=None):
         """
         Save the model
