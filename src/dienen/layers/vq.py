@@ -4,7 +4,7 @@ import tensorflow_probability as tfp
 
 class VQLayer(tfkl.Layer):
     def __init__(self,K,D,groups=1,beta_commitment = 2.5,mode='quantize',trainable=True,name=None):
-        super(VQLayer, self).__init__(name=name)
+        super(VQLayer, self).__init__(name=name, trainable = trainable)
         self.k = K
         self.d = D
         self.groups = groups
