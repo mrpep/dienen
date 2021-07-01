@@ -134,12 +134,13 @@ class Model():
         else:
             return nn.model
 
-    def fit(self, data = None, from_epoch = -1, validation_data = None, from_step = 0):
+    def fit(self, data = None, from_epoch = -1, validation_data = None, from_step = 0, class_weights = None):
         """
         Trains the model.
         data:               can be any object which is accepted by tf.keras.Model.fit()
         from_epoch:         specifies initial epoch
         validation_data:    can be any object which is accepted by the validation_data kwarg of tf.keras.Model.fit()
+        class_weights:      list of floats with the weight associated with each class
         """
         self.training_node = TrainingNode(self.config['Model']['Training'], modules = self.modules, logger=self.logger)
         if data is None:
@@ -160,7 +161,7 @@ class Model():
         else:
             print(self.core_model.model.summary())
        
-        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache,training_strategy=self.training_strategy, from_step = from_step)
+        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache,training_strategy=self.training_strategy, from_step = from_step, class_weights=class_weights)
         #self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache)
 
     def get_optimizer(self):
@@ -308,7 +309,7 @@ class Model():
                 class GeneratorLen(object):
                     def __init__(self, gen):
                         self.gen = gen
-
+                        
                     def __len__(self): 
                         return len(self.gen)
 
