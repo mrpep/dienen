@@ -253,7 +253,7 @@ class MaskedPooling1D(tfkl.Layer):
     def call(self,x):
         signal = x[0]
         mask = tf.expand_dims(x[1],axis=-1)
-        return tf.reduce_sum(signal*mask,axis=1)/(tf.reduce_sum(mask,axis=-2))
+        return tf.reduce_sum(signal*mask,axis=1)/(tf.reduce_sum(mask,axis=-2)+1e-12)
 
     def get_config(self):
         config = super().get_config().copy()

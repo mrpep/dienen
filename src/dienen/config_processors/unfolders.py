@@ -423,17 +423,21 @@ def external_unfold(name,config,metadata=None,logger=None):
     if external_last_layer and not external_first_layer and not external_layer_name:
         layers_subset = list(nx.ancestors(g,external_last_layer)) + [external_last_layer]
     elif external_first_layer and not external_last_layer and not external_layer_name:
-        layers_subset = list(nx.dfs_successors(g,external_first_layer))
+        layers_subset = nx.dfs_successors(g,external_first_layer)[external_first_layer] + [external_first_layer]
     elif external_first_layer and external_last_layer and not external_layer_name:
-        layers_subset = list(set(nx.dfs_successors(g,external_first_layer)).intersection(nx.ancestors(g,external_last_layer))) + [external_last_layer]
+        layers_subset = list(set(nx.dfs_successors(g,external_first_layer)[external_first_layer]).intersection(nx.ancestors(g,external_last_layer))) + [external_last_layer]
     elif external_layer_name:
         layers_subset = [external_layer_name]
     else:
         layers_subset = list(external_model_architecture.keys())
     if external_exclude_inputs:
         layers_subset = [layer for layer in layers_subset if external_model_architecture[layer]['class'] != 'Input']
-    
+        
     unfolded_layers = [external_model_architecture[l] for l in layers_subset]
+
+    #if len(unfolded_layers) == 1:
+    #    in_layers = [name]
+    #else:
     in_layers = []
     for l in unfolded_layers:
         ins = l['input']
