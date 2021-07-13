@@ -335,6 +335,24 @@ class Slice(tfkl.Layer):
         })
         return config
 
+class SliceTensor(tfkl.Layer):
+    def __init__(self,slices,name=None):
+        super(SliceTensor,self).__init__(name=name)
+        self.slices_ = slices
+
+    def build(self,input_shape):
+        self.slices = [slice(None)]*len(input_shape)
+        for sl in self.slices_:
+            self.slices[sl['axis']] = slice(sl['start'],sl['end'])
+    
+    def call(self,x):
+        return x[self.slices]
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({'slices': self.slices_})
+        return config
+
 class Split(tfkl.Layer):
   def __init__(self,n_splits,axis,name=None):
     super(Split,self).__init__(name=name)
