@@ -295,7 +295,26 @@ class OneHot(tfkl.Layer):
             'axis': self.axis
         })
         return config
-    
+
+class Pad(tfkl.Layer):
+    def __init__(self,paddings,mode='CONSTANT',constant_values = 0,name=None):
+        super(Pad,self).__init__(name=name)
+        self.paddings = paddings
+        self.mode = mode
+        self.constant_values = constant_values
+
+    def call(self,x):
+        return tf.pad(x,self.paddings,self.mode,self.constant_values)
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'paddings': self.paddings,
+            'mode': self.mode,
+            'constant_values': self.constant_values
+        })
+        return config
+
 class PolarToComplex(tfkl.Layer):
     def __init__(self,name=None):
         super(PolarToComplex,self).__init__(name=name)
