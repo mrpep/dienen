@@ -70,12 +70,13 @@ class PositionalEncoding(tfkl.Layer):
     def __init__(self,name=None,scale=1.0):
         super(PositionalEncoding,self).__init__(name=name)
         self.scale = scale
+        self.supports_masking = True
 
     def get_angles(self, pos, i, d_model):
         angle_rates = 1 / np.power(10000, (2 * (i//2)) / np.float32(d_model))
         return pos * angle_rates
 
-    def call(self, x):
+    def call(self, x, mask=None):
         position = x.shape[-2]
         d_model = x.shape[-1]
 
@@ -116,8 +117,9 @@ class ScaledDotProductAttention(tfkl.Layer):
         matmul_qk = tf.matmul(q, k, transpose_b=True)  # (..., seq_len_q, seq_len_k)
         dk = tf.cast(tf.shape(k)[-1], tf.float32)
         scaled_attention_logits = matmul_qk / tf.math.sqrt(dk)
-
+        
         if mask is not None:
+            mask = mask[:,tf.newaxis,:]
             scaled_attention_logits += (mask * -1e9)  
 
         if self.apply_softmax:
@@ -166,7 +168,10 @@ class TransformerBlock(tfkl.Layer):
 
         self.prenorm = pre_normalization
 
+        self.supports_masking = True
+
     def call(self,x,training,mask=None):
+        mask = 1.0 - tf.cast(mask,tf.float32)
         mha = self.mha(x,x,x,mask)
         out1 = self.dropout_1(mha,training=training)
         if self.prenorm:
