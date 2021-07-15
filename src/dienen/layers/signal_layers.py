@@ -32,9 +32,10 @@ class Frame(tfkl.Layer):
         return config
 
 class GetPatches(tfkl.Layer):
-    def __init__(self,patch_size=None,name=None, trainable=False):
+    def __init__(self,patch_size=None,mode='ud',name=None, trainable=False):
         super(GetPatches, self).__init__(name=name)
         self.patch_size = patch_size
+        self.mode = mode
         
     def call(self,x):
         #x (w,h,ch)
@@ -50,8 +51,13 @@ class GetPatches(tfkl.Layer):
         reshape_1 = tfkl.Reshape((ch,w,rows,h_i))(permute_1) #(ch,w,rows,h_i)
         permute_2 = tfkl.Permute((1,3,4,2))(reshape_1) #(ch,rows,h_i,w)
         reshape_2 = tfkl.Reshape((ch,rows,h_i,cols,w_i))(permute_2) #(ch,rows,h_i,cols,w_i)
-        final_permute = tfkl.Permute((2,4,3,5,1))(reshape_2)
-        final_reshape = tfkl.Reshape((rows*cols,h_i,w_i,ch))(final_permute)
+        if self.mode == 'lr':
+            final_permute = tfkl.Permute((2,4,3,5,1))(reshape_2) #(rows,cols,h_i,w_i)
+            final_reshape = tfkl.Reshape((rows*cols,h_i,w_i,ch))(final_permute)
+            final_reshape = tfkl.Permute((1,3,2,4))(final_reshape)
+        elif self.mode == 'ud':
+            final_permute = tfkl.Permute((4,2,5,3,1))(reshape_2) #(cols,rows,w_i,h_i)
+            final_reshape = tfkl.Reshape((rows*cols,w_i,h_i,ch))(final_permute)
 
         return final_reshape
 
