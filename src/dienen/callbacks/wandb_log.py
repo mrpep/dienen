@@ -103,7 +103,10 @@ class WANDBLogger(Callback):
                 plt.figure()
                 title = '{}'.format(out_name.replace('/','-'))
                 plt.title(title)
-                plt.imshow(np.squeeze(y_pred[j][i]).T,aspect='auto',origin='lower',vmin=plot_lims[0],vmax=plot_lims[1])
+                pred_i = np.squeeze(y_pred[j][i])
+                if pred_i.ndim == 3:
+                    pred_i = np.argmax(pred_i,axis=-1)
+                plt.imshow(pred_i.T,aspect='auto',origin='lower',vmin=plot_lims[0],vmax=plot_lims[1])
                 sample_plots.append(wandb.Image(plt))
                 plt.close()
 
@@ -150,8 +153,13 @@ class WANDBLogger(Callback):
 
             model_outs = [[self.model.predict(x), y] for x,y in params['validation_data']]
 
-            y_pred = np.concatenate(np.array([x[0] for x in model_outs]))
-            y_true = np.concatenate(np.array([x[1] for x in model_outs]))
+            y_pred = np.array([x[0] for x in model_outs])
+            y_true = np.array([x[1] for x in model_outs])
+            if y_pred.ndim > 1:
+                y_pred = np.concatenate(y_pred)
+            if y_true.ndim > 1:
+                y_true = np.concatenate(y_true)
+
             y_pred = y_pred[:len(params['validation_data']._index)]
             y_true = y_true[:len(params['validation_data']._index)]
 
