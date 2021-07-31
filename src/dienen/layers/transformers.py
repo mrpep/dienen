@@ -5,6 +5,7 @@ import tensorflow.keras.initializers as tfki
 from .convolutions import DynamicConvolution, GLU
 from .basic_layers import Split, ReZeroAdd
 from .initialization import InitializerScaler
+from .sparse_attention import BlockSparseProductAttention
 
 class MultiheadAttention(tfkl.Layer):
     def __init__(self,name=None,
@@ -13,19 +14,26 @@ class MultiheadAttention(tfkl.Layer):
                  n_heads=8, 
                  use_bias = False,
                  qkvw_init_scale = [1,1,1,1],
-                 apply_softmax=True):
+                 apply_softmax=True,
+                 sparse_pattern=None,
+                 sparse_block_size=16,
+                 trainable=True):
+
         super(MultiheadAttention,self).__init__(name=name)
         self.d_model = d_model
         self.d_proj = d_proj
         self.n_heads = n_heads
+        self.sparse_pattern = sparse_pattern
 
-        self.scaled_dot_product_attention = ScaledDotProductAttention(name = self.name + '_attention', apply_softmax = apply_softmax) 
+        if sparse_pattern is None:
+            self.scaled_dot_product_attention = ScaledDotProductAttention(name = self.name + '_attention', apply_softmax = apply_softmax) 
+        else:
+            self.scaled_dot_product_attention = BlockSparseProductAttention(name = self.name + '_block_sparse_attention', block_size=sparse_block_size,sparse_pattern=sparse_pattern,apply_softmax = apply_softmax)
 
-        self.wq = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wq',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[0]))
-        self.wk = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wk',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[1]))
-        self.wv = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wv',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[2]))
-    
-        self.wo = tf.keras.layers.Dense(d_model,use_bias=use_bias,name=self.name + '_wo',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[3]))
+        self.wq = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wq',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[0]), trainable=trainable)
+        self.wk = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wk',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[1]), trainable=trainable)
+        self.wv = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wv',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[2]), trainable=trainable)
+        self.wo = tf.keras.layers.Dense(d_model,use_bias=use_bias,name=self.name + '_wo',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[3]), trainable=trainable)
 
     def split_heads(self, x, batch_size):
         """Split the last dimension into (num_heads, depth).
@@ -33,6 +41,10 @@ class MultiheadAttention(tfkl.Layer):
         """
         x = tf.reshape(x, (batch_size, -1, self.n_heads, self.d_proj))
         return tf.transpose(x, perm=[0, 2, 1, 3])
+
+    def build(self,input_shape):
+        if self.sparse_pattern is not None:
+            self.scaled_dot_product_attention.T = self.T
 
     def call(self,q,k,v,mask=None):
         batch_size = tf.shape(q)[0]
@@ -57,6 +69,7 @@ class PositionalEmbeddingLookup(tfkl.Layer):
     def __init__(self, name=None,trainable=True, initialization='normal'):
         super(PositionalEmbeddingLookup, self).__init__(name=name,trainable=True)
         self.initialization = initialization
+        self.supports_masking = True
 
     def build(self, input_shape):
         self.lookup_table = self.add_weight(shape=(input_shape[1:]),
@@ -67,8 +80,8 @@ class PositionalEmbeddingLookup(tfkl.Layer):
         return x + tf.nn.embedding_lookup(self.lookup_table,self.positions)
 
 class PositionalEncoding(tfkl.Layer):
-    def __init__(self,name=None,scale=1.0):
-        super(PositionalEncoding,self).__init__(name=name)
+    def __init__(self,name=None,scale=1.0,trainable=False):
+        super(PositionalEncoding,self).__init__(name=name, trainable=trainable)
         self.scale = scale
         self.supports_masking = True
 
@@ -134,7 +147,7 @@ class ScaledDotProductAttention(tfkl.Layer):
 class TransformerBlock(tfkl.Layer):
     def __init__(self,
                 name=None,
-                d_model=512, 
+                d_model=512,
                 d_proj=64, 
                 n_heads=8, 
                 residual_dropout=0.1, 
@@ -144,64 +157,93 @@ class TransformerBlock(tfkl.Layer):
                 pre_normalization=False,
                 qkvw_init_scale=1, 
                 apply_softmax=True,
-                rezero=False):
+                rezero=False,
+                sparse_pattern=None,
+                sparse_block_size=16,
+                trainable=True):
 
-        super(TransformerBlock,self).__init__(name=name)
+        super(TransformerBlock,self).__init__(name=name, trainable = trainable)
         self.rezero = rezero
         if self.rezero:
-            self.rezero1 = ReZeroAdd()
-            self.rezero2 = ReZeroAdd()
-        self.mha = MultiheadAttention(name = self.name + '_mha',
-                                      d_model=d_model, 
-                                      d_proj=d_proj, 
-                                      n_heads=n_heads, 
-                                      use_bias = use_bias,
-                                      qkvw_init_scale = qkvw_init_scale,
-                                      apply_softmax=apply_softmax)
-        self.dropout_1 = tfkl.Dropout(residual_dropout, name = self.name + '_dropout_1')
-        self.dropout_2 = tfkl.Dropout(residual_dropout, name = self.name + '_dropout_2')
-        self.ln1 = tfkl.LayerNormalization(epsilon=1e-6, name = self.name + '_layernorm_1')
-        self.ln2 = tfkl.LayerNormalization(epsilon=1e-6, name = self.name + '_layernorm_2')
+            self.rezero1 = ReZeroAdd(trainable=trainable)
+            self.rezero2 = ReZeroAdd(trainable=trainable)
 
-        self.ff1 = tfkl.Conv1D(ff_dim,conv_kernel_size,activation='relu',name=self.name + '_ff_1', use_bias = use_bias,padding='SAME')
-        self.ff2 = tfkl.Conv1D(d_model,conv_kernel_size,name=self.name + '_ff_2', use_bias = use_bias,padding='SAME')
+        if not isinstance(qkvw_init_scale,list):
+            qkvw_init_scale = [qkvw_init_scale]*4
+        
+        self.masking = tfkl.Masking(trainable=trainable)
+        self.sparse_pattern = sparse_pattern
+
+        self.mha = MultiheadAttention(name = self.name + '_mha',
+                                        d_model=d_model, 
+                                        d_proj=d_proj, 
+                                        n_heads=n_heads, 
+                                        use_bias = use_bias,
+                                        qkvw_init_scale = qkvw_init_scale,
+                                        apply_softmax=apply_softmax,
+                                        sparse_pattern=sparse_pattern,
+                                        sparse_block_size=sparse_block_size,
+                                        trainable=trainable)
+
+        self.dropout_1 = tfkl.Dropout(residual_dropout, name = self.name + '_dropout_1', trainable=trainable)
+        self.dropout_2 = tfkl.Dropout(residual_dropout, name = self.name + '_dropout_2', trainable=trainable)
+        self.ln1 = tfkl.LayerNormalization(epsilon=1e-6, name = self.name + '_layernorm_1', trainable=trainable)
+        self.ln2 = tfkl.LayerNormalization(epsilon=1e-6, name = self.name + '_layernorm_2', trainable=trainable)
+
+        self.ff1 = tfkl.Conv1D(ff_dim,conv_kernel_size,activation='relu',name=self.name + '_ff_1', use_bias = use_bias,padding='SAME', trainable=trainable)
+        self.ff2 = tfkl.Conv1D(d_model,conv_kernel_size,name=self.name + '_ff_2', use_bias = use_bias,padding='SAME', trainable=trainable)
 
         self.prenorm = pre_normalization
 
         self.supports_masking = True
 
+    def build(self,input_shape):
+        if self.sparse_pattern is not None:
+            self.mha.T = input_shape[1]
+
     def call(self,x,training,mask=None):
-        mask = 1.0 - tf.cast(mask,tf.float32)
-        mha = self.mha(x,x,x,mask)
-        out1 = self.dropout_1(mha,training=training)
-        if self.prenorm:
-            out1 = self.ln1(out1)
-            if self.rezero:
-                out1 = self.rezero1([x,out1])
-            else:
-                out1 = out1 + x
-        else:
-            if self.rezero:
-                out1 = self.rezero1([x,out1])
-            else:
-                out1 = out1 + x
-            out1 = self.ln1(out1)
-        ff = self.ff1(out1)
+        if mask is not None:
+            x = self.masking(x)
+            mask = 1.0 - tf.cast(mask,tf.float32)
+        ln1_out = self.ln1(x)
+        mha = self.mha(ln1_out,ln1_out,ln1_out,mask)
+        out1 = x + mha
+        ln2_out = self.ln2(out1)
+        ff = self.ff1(ln2_out)
+        ff = self.dropout_1(ff)
         ff = self.ff2(ff)
-        out2 = self.dropout_2(ff,training=training)
-        if self.prenorm:
-            out2 = self.ln2(out2)
-            if self.rezero:
-                out2 = self.rezero2([out1,out2])
-            else:
-                out2 = out2 + out1
-        else:
-            if self.rezero:
-                out2 = self.rezero2([out1,out2])
-            else:
-                out2 = out2 + out1
-            out2 = self.ln2(out2)
-        return out2
+        ff = self.dropout_2(ff)
+        return ff + out1
+
+        #out1 = self.dropout_1(mha,training=training)
+        #if self.prenorm:
+        #    out1 = self.ln1(out1)
+        #    if self.rezero:
+        #        out1 = self.rezero1([x,out1])
+        #    else:
+        #        out1 = out1 + x
+        #else:
+        #    if self.rezero:
+        #        out1 = self.rezero1([x,out1])
+        #    else:
+        #        out1 = out1 + x
+        #    out1 = self.ln1(out1)
+        #ff = self.ff1(out1)
+        #ff = self.ff2(ff)
+        #out2 = self.dropout_2(ff,training=training)
+        #if self.prenorm:
+        #    out2 = self.ln2(out2)
+        #    if self.rezero:
+        #        out2 = self.rezero2([out1,out2])
+        #    else:
+        #        out2 = out2 + out1
+        #else:
+        #    if self.rezero:
+        #        out2 = self.rezero2([out1,out2])
+        #    else:
+        #        out2 = out2 + out1
+        #    out2 = self.ln2(out2)
+        #return out2
 
 class TransformerLiteBlock(tfkl.Layer):
     def __init__(self,name=None,d_model=512, n_heads=8, glu_kernel_size=4,dynamic_kernel_size=4, dynamic_H=32, projection_kernel_size=1,ffn_kernel_size=1,residual_dropout=0.1, use_bias = False, conv_kernel_size = 1, pre_normalization=False, apply_softmax=True):

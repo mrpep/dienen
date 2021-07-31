@@ -99,3 +99,33 @@ class Wav2Vec2ContrastiveLoss(tfkl.Layer):
         self.add_metric(closs,name='contrastive_loss')
 
         return closs
+
+class MaskedSparseCategoricalCrossEntropy(tfkl.Layer):
+    def __init__(self, from_logits=False,axis=-1,name=None):
+        super(MaskedSparseCategoricalCrossEntropy, self).__init__(name=name)
+        self.from_logits = from_logits
+        self.axis = axis
+    
+    def call(self,x):
+        y_true = x[0]
+        y_pred = x[1]
+        mask = x[2]
+        
+        loss = tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred, from_logits=False, axis=-1)
+        reduced_loss = tf.reduce_sum(mask*loss)/(tf.reduce_sum(mask)+1e-12)
+        self.add_metric(reduced_loss,name=self.name)
+        return reduced_loss
+
+class BinaryCrossEntropy(tfkl.Layer):
+    def __init__(self, from_logits=False,axis=-1,name=None):
+        super(BinaryCrossEntropy, self).__init__(name=name)
+        self.from_logits = from_logits
+        self.axis = axis
+
+    def call(self,x):
+        y_true = x[0]
+        y_pred = x[1]
+        loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(y_true, y_pred))
+        self.add_metric(loss,name=self.name)
+        return loss
+

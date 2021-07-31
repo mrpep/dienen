@@ -76,9 +76,15 @@ class BooleanLayer(tfkl.Layer):
         return config
 
 class CreateMask(tfkl.Layer):
-    def __init__(self,criteria='min',name=None,trainable=False):
+    """
+    Creates a mask from a tensor. It will take a zero as value when criteria is matched and 1 otherwise.
+    criteria: str. Can be 'min' if we want to put zeros where the minimum value is found. 
+                   Can be 'match_value' if we want to turn an specific value into zero. The value is passed with the kwarg value.
+    """
+    def __init__(self,criteria='min',value=None,name=None,trainable=False):
         super(CreateMask,self).__init__(name=name)
         self.criteria = criteria
+        self.value = value
 
     def build(self,input_shape):
         self.axis_to_reduce = [-i-1 for i in range(len(input_shape)-2)]
@@ -86,6 +92,10 @@ class CreateMask(tfkl.Layer):
     def call(self,x):
         if self.criteria == 'min':
             return 1.0 - tf.cast(tf.reduce_all(x==tf.reduce_min(x),axis=self.axis_to_reduce),tf.float32)
+        elif self.criteria == 'match_value':
+            return 1.0 - tf.cast(tf.reduce_all(x==self.value,axis=self.axis_to_reduce),tf.float32)
+        else:
+            raise Exception('Criteria not implemented')
 
 class Divide(tfkl.Layer):
     def __init__(self,name=None,trainable=False,offset=1e-9):
@@ -119,6 +129,8 @@ class EmbeddingMask(tfkl.Layer):
             self.lookup_table = self.add_weight(shape=[self.n_embeddings] + input_shape[0][2:],
                                 initializer='normal',
                                 trainable=True)
+        else:
+            raise Exception('User defined masking_values still not implemented')
 
     def call(self,x):
         signal, mask = x
@@ -274,6 +286,13 @@ class Normalize(tfkl.Layer):
             'normalization_type': self.normalization_type
         })
         return config
+
+class Not(tfkl.Layer):
+    def __init__(self,name=None):
+        super(Not,self).__init__(name=name)
+    
+    def call(self,x):
+        return 1.0 - tf.cast(x,tf.float32)
 
 class OneHot(tfkl.Layer):
     def __init__(self,depth=None,on_value=1,off_value=0,axis=-1,name=None):
@@ -444,10 +463,11 @@ class TranslateRange(tfkl.Layer):
         return config
 
 class WeightedAverage(tf.keras.layers.Layer):
-    def __init__(self, weights='trainable',axis=1, initializer = 'ones', name=None):
+    def __init__(self, weights='trainable',axis=1, initializer = 'ones', normalize_weights = True, name=None):
         super(WeightedAverage, self).__init__(name=name)
         self.avg_weights = weights
         self.axis = axis
+        self.normalize_weights = normalize_weights
         self.initializer = initializer
 
     def build(self, input_shape):
@@ -464,6 +484,7 @@ class WeightedAverage(tf.keras.layers.Layer):
         else:
             self.kernel = np.ones(weights_shape)
             self.kernel[:] = self.avg_weights
+            self.kernel = tf.constant(self.kernel,dtype=tf.float32)
 
         self.perm = list(range(len(weights_shape)))
         self.perm[self.axis] = self.perm[-2]
@@ -471,5 +492,7 @@ class WeightedAverage(tf.keras.layers.Layer):
 
     def call(self, input):
         weights = tf.abs(self.kernel)
-        res = tf.matmul(weights/tf.reduce_sum(weights),tf.transpose(input,self.perm))
+        if self.normalize_weights:
+            weights = weights/tf.reduce_sum(weights)
+        res = tf.matmul(weights,tf.transpose(input,self.perm))
         return tf.transpose(res,self.perm)
