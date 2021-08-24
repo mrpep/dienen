@@ -468,6 +468,9 @@ def external_unfold(name,config,metadata=None,logger=None):
     for layer_name, layer_config in new_config.items():
         if layer_name not in trainable_layers:
             layer_config['trainable'] = False
+            layer_config['training'] = False #This is to avoid problems with BN accumulated statistics
+        else:
+            layer_config['trainable'] = True
 
     #from IPython import embed
     #embed()
@@ -481,9 +484,11 @@ def external_unfold(name,config,metadata=None,logger=None):
         external_weight_layers = [layer_name for layer_name, layer in new_config.items() if layer['class'] != 'Input']
     elif isinstance(external_reset_weights,list):
         external_weight_layers = external_reset_weights
-    for layer in external_weight_layers:
-        new_config[layer]['from_model'] = external_model_name
-        new_config[layer]['from_layer'] = layer
+
+    if not config.get('reset_weights',False):
+        for layer in external_weight_layers:
+            new_config[layer]['from_model'] = external_model_name
+            new_config[layer]['from_layer'] = layer
 
     return new_config, hierarchy
 

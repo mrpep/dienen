@@ -5,9 +5,11 @@ from dienen.config_processors.utils import single_elem_list_to_elem
 from dienen.utils import get_modules, get_members_from_module
 import inspect
 import tensorflow.keras.layers
+import tensorflow_addons.layers
 import copy
 import tensorflow as tf
 import joblib
+import warnings
 
 from IPython import embed
 
@@ -37,7 +39,7 @@ class Architecture:
 		self.outputs = self.outputs if isinstance(self.outputs,list) else [self.outputs]
 
 		if not layer_modules:
-			layer_modules = [dienen.layers, tensorflow.keras.layers]
+			layer_modules = [dienen.layers, tensorflow.keras.layers,tensorflow_addons.layers]
 
 		self.layer_modules = layer_modules
 		self.modules = modules
@@ -67,7 +69,7 @@ class Architecture:
 					if layer['from_layer'] in external_weights[layer['from_model']]:
 						self.weights_to_assign[layer_name] = external_weights[layer['from_model']][layer['from_layer']]
 					else:
-						raise Exception('Layer {} does not exist in external model {}'.format(layer['from_layer'],layer['from_model']))
+						warnings.warn('Layer {} does not exist in external model {}'.format(layer['from_layer'],layer['from_model']))
 					layer.pop('from_model')
 					layer.pop('from_layer')
 
@@ -130,6 +132,7 @@ class Architecture:
 				layer_inputs = layer_inputs if isinstance(layer_inputs,list) else [layer_inputs]
 				layer_inputs = [self.tensors[inp] for inp in layer_inputs]
 				layer_mask = self.processed_config[layer].get('mask', None)
+				layer_training = self.processed_config[layer].get('training',None)
 				if len(layer_inputs) == 1:
 					layer_inputs = layer_inputs[0]
 				if layer in self.shared_layers:
@@ -149,9 +152,10 @@ class Architecture:
 						if layer_mask is not None:
 							layer_mask = self.tensors[layer_mask]
 							layer_mask = tf.cast(layer_mask,tf.bool)
-							self.tensors[layer] = self.layers[layer](layer_inputs, mask=layer_mask)
+
+							self.tensors[layer] = self.layers[layer](layer_inputs, mask=layer_mask, training=layer_training)
 						else:
-							self.tensors[layer] = self.layers[layer](layer_inputs)
+							self.tensors[layer] = self.layers[layer](layer_inputs, training=layer_training)
 					except Exception as e:
 						embed()
 						raise Exception('Could not connect layer {} with its inputs {}. {}'.format(layer,self.processed_config[layer]['input'],e))
