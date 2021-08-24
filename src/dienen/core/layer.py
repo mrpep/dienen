@@ -7,7 +7,7 @@ import tensorflow.keras.initializers as initializers
 
 class Layer(DienenNode):
     def __init__(self):
-        self.valid_nodes = ['name','input','time_distributed','trainable','bidirectional','class','normalize_weights','kernel_initializer_args','mask']
+        self.valid_nodes = ['name','input','time_distributed','trainable','bidirectional','class','normalize_weights','kernel_initializer_args','mask','training']
         self.required_nodes = []
 
     def set_layer_modules(self,layer_modules):

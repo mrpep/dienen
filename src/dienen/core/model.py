@@ -272,7 +272,8 @@ class Model():
                 else:
                     pass
             predict_fn = tf.keras.backend.function(inputs = inputs,outputs=outputs)
-            if not isinstance(data,np.ndarray):
+            print(isinstance(data,list))
+            if (not isinstance(data,np.ndarray)) and (not isinstance(data,list)):
                 activations = [predict_fn(x_i) for x_i, y_i in tqdm.tqdm(data)]
                 activations = {k: np.concatenate([act_i[i] for act_i in activations],axis=0)[:len(data.data)] for i,k in enumerate(output_names)}
             else:
