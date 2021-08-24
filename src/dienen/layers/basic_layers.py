@@ -271,6 +271,16 @@ class MaskedPooling1D(tfkl.Layer):
         config = super().get_config().copy()
         return config    
 
+class MinMaxScaler(tfkl.Layer):
+    def __init__(self,axis,name=None, trainable=False):
+        super().__init__(name=name, trainable=trainable)
+        self.axis = axis
+    
+    def call(self,x):
+        x = x - tf.reduce_min(x,axis=self.axis,keepdims=True)
+        x = x/(tf.reduce_max(tf.abs(x),axis=self.axis,keepdims=True))
+        return x
+
 class Normalize(tfkl.Layer):
     def __init__(self,normalization_type='mvn',name=None):
         super(Normalize,self).__init__(name=name)
