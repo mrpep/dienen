@@ -234,7 +234,7 @@ class SaveCheckpoints(Callback):
             S3File(str(s3_ckpt_path),'metadata').upload(metadata_dir)
         
     def on_batch_end(self, batch, logs):       
-        if self.time_unit == 'step' and self.step%self.frequency == 0:
+        if self.time_unit == 'step' and (self.step+1)%self.frequency == 0:
             logs.update(self.model.metrics_log)
             self.current_metric = logs.get(self.monitor_metric, None)
             self.save(mode = 'step')

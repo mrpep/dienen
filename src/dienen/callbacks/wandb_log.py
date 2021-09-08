@@ -116,7 +116,7 @@ class WANDBLogger(Callback):
         prefix = params.get('prefix',None)
         logs_ = {}
         for k,v in logs.items():
-            if not isinstance(v,float):
+            if (not isinstance(v,float)) and (not isinstance(v,np.object)):
                 v = v.numpy()
             if prefix is not None:
                 logs_['{}_{}'.format(prefix,k)] = v
@@ -234,8 +234,7 @@ class WANDBLogger(Callback):
                             plt.figure(figsize=(10,10))
                             plt.imshow(v_i,aspect='auto',origin='lower')
                             wandb.log({'val_{}_{}'.format(k,i): wandb.Image(plt)},step=self.step)
-                        
-            wandb.log(metric_results,step=self.step)
+            wandb.log(metric_results,step=self.step)            
         else:
             metric_results = self.model.evaluate(params['validation_data'],return_dict=True)
             metric_results = {'val_{}'.format(k): v for k,v in metric_results.items()}
@@ -245,7 +244,7 @@ class WANDBLogger(Callback):
     def on_epoch_end(self, batch, logs):
         logged_metrics = None
         for log_type, log_params in self.loggers.items():
-            if (log_params['unit'] == 'epoch') and (log_params['freq'] % self.step == 0):
+            if (log_params['unit'] == 'epoch') and ((self.step + 1) % int(log_params['freq']) == 0):
                logged_metrics = self.log_mapping[log_type](logs)
 
         if ('TrainMetrics' in self.loggers) and len(logs)>0:
@@ -259,7 +258,7 @@ class WANDBLogger(Callback):
         
     def on_batch_end(self, batch, logs):
         for log_type, log_params in self.loggers.items():
-            if (log_params['unit'] == 'step') and (self.step % int(log_params['freq']) == 0):
+            if (log_params['unit'] == 'step') and ((self.step + 1) % int(log_params['freq']) == 0):
                 logged_metrics = self.log_mapping[log_type](log_params, logs)
                 if logged_metrics is not None:
                     logs.update(logged_metrics)
