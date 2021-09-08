@@ -425,7 +425,9 @@ def external_unfold(name,config,metadata=None,logger=None):
     elif external_first_layer and not external_last_layer and not external_layer_name:
         layers_subset = nx.dfs_successors(g,external_first_layer)[external_first_layer] + [external_first_layer]
     elif external_first_layer and external_last_layer and not external_layer_name:
-        layers_subset = list(set(nx.dfs_successors(g,external_first_layer)[external_first_layer]).intersection(nx.ancestors(g,external_last_layer))) + [external_last_layer]
+        after_from = set(nx.dfs_successors(g,external_first_layer).keys())
+        before_to = set(nx.ancestors(g,external_last_layer))
+        layers_subset = list(after_from.intersection(before_to)) + [external_last_layer]
     elif external_layer_name:
         layers_subset = [external_layer_name]
     else:
