@@ -3,7 +3,7 @@ from .training import TrainingNode
 
 from dienen.config_processors import ArchitectureConfig
 from dienen.config_processors.utils import set_config_parameters
-from dienen.utils import get_config, get_available_gpus
+from dienen.utils import get_config, get_available_gpus, get_modules
 from dienen.core.file import load_weights
 
 from ruamel.yaml import YAML
@@ -125,7 +125,11 @@ class Model():
                         if self.logger:
                             self.logger.info('Layer {}: automatically set units as: {}'.format(out_name,self.output_shapes[i][0]))
         
-        nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config,training_strategy=self.training_strategy,custom_model=self.config['Model'].get('custom_model',None),modules=self.modules)
+        layer_modules = self.config.get('Model/layer_modules',None)
+        if layer_modules is not None:
+            layer_modules = get_modules(layer_modules)
+
+        nn = Architecture(self.architecture_config,layer_modules = layer_modules,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config,training_strategy=self.training_strategy,custom_model=self.config['Model'].get('custom_model',None),modules=self.modules)
         #nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config)
         self.core_model = nn
 

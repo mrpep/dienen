@@ -38,10 +38,12 @@ class Architecture:
 		self.inputs = self.inputs if isinstance(self.inputs,list) else [self.inputs]
 		self.outputs = self.outputs if isinstance(self.outputs,list) else [self.outputs]
 
-		if not layer_modules:
-			layer_modules = [dienen.layers, tensorflow.keras.layers,tensorflow_addons.layers]
-
-		self.layer_modules = layer_modules
+		
+		self.layer_modules = [dienen.layers, tensorflow.keras.layers,tensorflow_addons.layers]
+		if layer_modules is not None:
+			self.layer_modules += layer_modules
+		
+		#self.layer_modules = layer_modules
 		self.modules = modules
 		self.find_external_weights()
 		self.create_layers()
