@@ -4,7 +4,7 @@ import tensorflow.keras.layers as tfkl
 import tensorflow.keras.initializers as tfki
 from .convolutions import DynamicConvolution, GLU
 from .basic_layers import Split, ReZeroAdd
-from .initialization import InitializerScaler
+from .initialization import InitializerScaler, InitializeWith
 from .sparse_attention import BlockSparseProductAttention
 
 class MultiheadAttention(tfkl.Layer):
@@ -17,7 +17,12 @@ class MultiheadAttention(tfkl.Layer):
                  apply_softmax=True,
                  sparse_pattern=None,
                  sparse_block_size=16,
-                 trainable=True):
+                 trainable=True,
+                 relative_attention_type=False,
+                 shape_2d=None,
+                 share_pe_heads=True,
+                 pe_initialization='uniform',
+                 cls_token=True):
 
         super(MultiheadAttention,self).__init__(name=name)
         self.d_model = d_model
@@ -26,7 +31,8 @@ class MultiheadAttention(tfkl.Layer):
         self.sparse_pattern = sparse_pattern
 
         if sparse_pattern is None:
-            self.scaled_dot_product_attention = ScaledDotProductAttention(name = self.name + '_attention', apply_softmax = apply_softmax) 
+            self.scaled_dot_product_attention = ScaledDotProductAttention(name = self.name + '_attention', apply_softmax = apply_softmax, relative_attention_type=relative_attention_type,
+                 shape_2d=shape_2d, share_pe_heads=share_pe_heads, pe_initialization=pe_initialization, cls_token = cls_token) 
         else:
             self.scaled_dot_product_attention = BlockSparseProductAttention(name = self.name + '_block_sparse_attention', block_size=sparse_block_size,sparse_pattern=sparse_pattern,apply_softmax = apply_softmax)
 
@@ -56,8 +62,10 @@ class MultiheadAttention(tfkl.Layer):
         q = self.split_heads(q, batch_size)  # (batch_size, n_heads, seq_len_q, depth)
         k = self.split_heads(k, batch_size)  # (batch_size, n_heads, seq_len_k, depth)
         v = self.split_heads(v, batch_size)  # (batch_size, n_heads, seq_len_v, depth)
-
-        scaled_attention = self.scaled_dot_product_attention([q, k, v, mask])
+        if mask is not None:
+            scaled_attention = self.scaled_dot_product_attention([q, k, v, mask])
+        else:
+            scaled_attention = self.scaled_dot_product_attention([q, k, v])
         scaled_attention = tf.transpose(scaled_attention, perm=[0, 2, 1, 3])  # (batch_size, seq_len_q, num_heads, depth)
         concat_attention = tf.reshape(scaled_attention, 
                                   (batch_size, -1, self.d_proj*self.n_heads))  # (batch_size, seq_len_q, d_model)
@@ -108,9 +116,86 @@ class PositionalEncoding(tfkl.Layer):
         return x + self.scale*tf.cast(pos_encoding, dtype=tf.float32)
 
 class ScaledDotProductAttention(tfkl.Layer):
-    def __init__(self,apply_softmax=True,name=None,trainable=False):
+    def __init__(self,apply_softmax=True,name=None,trainable=False, relative_attention_type=False,
+                 shape_2d=None, share_pe_heads=True, pe_initialization='uniform',cls_token=True):
         super(ScaledDotProductAttention,self).__init__(name=name)
         self.apply_softmax = apply_softmax
+        self.relative_attention_type = relative_attention_type
+        self.shape_2d = shape_2d
+        self.share_pe_heads = share_pe_heads
+        self.pe_initialization = pe_initialization
+        self.cls_token = cls_token
+
+    def get_2dindices_from_sequence(self,w,h):
+        h_indices = np.tile(np.arange(h),w)
+        w_indices = np.reshape(np.arange(0,w)[:,np.newaxis]*np.ones((w,h)),-1)
+
+        return np.stack([w_indices, h_indices]).T
+
+    def get_idx_distances(self,w,h,cls_token=True,offset=True):
+        idxs = self.get_2dindices_from_sequence(w,h)
+        idxs_tiled = np.tile(idxs[:,:,np.newaxis],(1,1,idxs.shape[0]))
+        idxs_tiled = np.transpose(idxs_tiled,(0,2,1))
+        r_w = idxs_tiled[:,:,0].T - idxs_tiled[:,:,0]
+        r_h = idxs_tiled[:,:,1].T - idxs_tiled[:,:,1]
+        if cls_token:
+            r_w = np.concatenate([np.zeros((1,w*h)),r_w],axis=0)
+            r_w = np.concatenate([np.zeros((w*h+1,1)),r_w],axis=1)
+            r_h = np.concatenate([np.zeros((1,w*h)),r_h],axis=0)
+            r_h = np.concatenate([np.zeros((w*h+1,1)),r_h],axis=1)
+        if offset:
+            r_w = r_w - r_w.min()
+            r_h = r_h - r_h.min()
+
+        return idxs,r_w, r_h
+
+    def get_idxs_matrix(self, n_heads, cls_token=True):
+        idxs, rw, rh = self.get_idx_distances(self.shape_2d[0],self.shape_2d[1],cls_token)
+        idxs_for_rw = []
+        idxs_for_rh = []
+        for h in range(n_heads):
+            for i in range(rw.shape[0]):
+                for j in range(rw.shape[1]):
+                    idxs_for_rw.append([h,i,rw[i,j]])
+                    idxs_for_rh.append([h,i,rh[i,j]])
+        rw_idxs_tf = tf.constant(np.array(idxs_for_rw),dtype=tf.int32)
+        rh_idxs_tf = tf.constant(np.array(idxs_for_rh),dtype=tf.int32)
+
+        return rw_idxs_tf, rh_idxs_tf
+
+    def build(self,input_shape):
+        input_shape = input_shape[0]
+        self.n_heads = input_shape[1]
+        self.d_proj = input_shape[-1]
+
+        if self.relative_attention_type == 'huang2d':
+            self.rw_idxs, self.rh_idxs = self.get_idxs_matrix(self.n_heads,self.cls_token)
+            if self.share_pe_heads:
+                n_heads_trainable = 1
+            else:
+                n_heads_trainable = self.n_heads
+
+            self.er_w = self.add_weight(shape=[n_heads_trainable,self.shape_2d[0]*2-1,self.d_proj],
+                               initializer=self.pe_initialization,
+                               trainable=True,name='rpe_w')
+            self.er_h = self.add_weight(shape=[n_heads_trainable,self.shape_2d[1]*2-1,self.d_proj],
+                               initializer=self.pe_initialization,
+                               trainable=True,name='rpe_h')
+
+        elif self.relative_attention_type == 'alibi2d':
+            idxs, rw, rh = self.get_idx_distances(self.shape_2d[0],self.shape_2d[1],self.cls_token,offset=False)
+            ms = 2**(-np.linspace(1,8,self.n_heads//2))
+            rw_alibi = -np.abs(rw)
+            rh_alibi = -np.abs(rh)
+            rh_alibi = np.tile(rh_alibi,(self.n_heads//2,1,1))
+            rh_alibi_heads = ms[:,np.newaxis,np.newaxis]*rh_alibi
+            rw_alibi = np.tile(rw_alibi,(self.n_heads//2,1,1))
+            rw_alibi_heads = ms[:,np.newaxis,np.newaxis]*rw_alibi
+            all_heads = np.concatenate([rw_alibi_heads,rh_alibi_heads],axis=0)
+            self.r_matrix = self.add_weight(shape=[self.n_heads,all_heads.shape[1],all_heads.shape[2]],
+                                            initializer=InitializeWith(tf.constant(all_heads)),
+                                            trainable=False,
+                                            name='r_matrix')
 
     def call(self,inputs):
         if len(inputs) == 1:
@@ -128,6 +213,28 @@ class ScaledDotProductAttention(tfkl.Layer):
             mask = inputs[3]
 
         matmul_qk = tf.matmul(q, k, transpose_b=True)  # (..., seq_len_q, seq_len_k)
+
+        if self.relative_attention_type == 'huang2d':
+            if self.share_pe_heads:
+                er_w = tf.tile(self.er_w,(self.n_heads,1,1))
+                er_h = tf.tile(self.er_h,(self.n_heads,1,1))
+            else:
+                er_w = self.er_w
+                er_h = self.er_h
+            bs = tf.shape(q)[0]
+            bs_idx = tf.repeat(tf.range(0,bs),self.rw_idxs.shape[0])
+            rw_idxs = tf.concat([bs_idx[:,tf.newaxis],tf.tile(self.rw_idxs,(bs,1))],axis=1)
+            rh_idxs = tf.concat([bs_idx[:,tf.newaxis],tf.tile(self.rh_idxs,(bs,1))],axis=1)
+            qerw = tf.matmul(q,tf.expand_dims(er_w,axis=0),transpose_b=True)
+            qerh = tf.matmul(q,tf.expand_dims(er_h,axis=0),transpose_b=True)
+            sw = tf.gather_nd(qerw,rw_idxs)
+            sw = tf.reshape(sw,tf.shape(matmul_qk))
+            sh = tf.gather_nd(qerh,rh_idxs)
+            sh = tf.reshape(sh,tf.shape(matmul_qk))
+            matmul_qk = matmul_qk + sw + sh
+        elif self.relative_attention_type == 'alibi2d':
+            matmul_qk = matmul_qk + self.r_matrix
+
         dk = tf.cast(tf.shape(k)[-1], tf.float32)
         scaled_attention_logits = matmul_qk / tf.math.sqrt(dk)
         
@@ -160,6 +267,11 @@ class TransformerBlock(tfkl.Layer):
                 rezero=False,
                 sparse_pattern=None,
                 sparse_block_size=16,
+                relative_attention_type=False,
+                shape_2d=None, 
+                share_pe_heads=True, 
+                pe_initialization='uniform',
+                cls_token=True,
                 trainable=True):
 
         super(TransformerBlock,self).__init__(name=name, trainable = trainable)
@@ -183,7 +295,13 @@ class TransformerBlock(tfkl.Layer):
                                         apply_softmax=apply_softmax,
                                         sparse_pattern=sparse_pattern,
                                         sparse_block_size=sparse_block_size,
-                                        trainable=trainable)
+                                        trainable=trainable,
+                                        relative_attention_type=relative_attention_type,
+                                        shape_2d=shape_2d, 
+                                        share_pe_heads=share_pe_heads, 
+                                        pe_initialization=pe_initialization,
+                                        cls_token=cls_token
+                                        )
 
         self.dropout_1 = tfkl.Dropout(residual_dropout, name = self.name + '_dropout_1', trainable=trainable)
         self.dropout_2 = tfkl.Dropout(residual_dropout, name = self.name + '_dropout_2', trainable=trainable)
@@ -206,7 +324,11 @@ class TransformerBlock(tfkl.Layer):
             x = self.masking(x)
             mask = 1.0 - tf.cast(mask,tf.float32)
         ln1_out = self.ln1(x)
-        mha = self.mha(ln1_out,ln1_out,ln1_out,mask)
+        if mask is not None:
+            mha = self.mha(ln1_out,ln1_out,ln1_out,mask)
+        else:
+            mha = self.mha(ln1_out,ln1_out,ln1_out)
+
         out1 = x + mha
         ln2_out = self.ln2(out1)
         ff = self.ff1(ln2_out)
