@@ -464,7 +464,7 @@ class Model():
     def summary(self):
         return self.core_model.model.summary()
 
-    def load_weights(self,strategy='min'):
+    def load_weights(self,strategy='min',restore_optimizer=True):
         """
         Reads the checkpoints metadata saved, and automatically selects the best weights and sets them for the model.
 
@@ -485,7 +485,8 @@ class Model():
             weights_path = checkpoints_metadata[idx]['weights_path']
             opt_path = checkpoints_metadata[idx]['opt_weights_path']
             self.set_weights(weights_path)
-            self.set_optimizer_weights(opt_path)
+            if restore_optimizer:
+                self.set_optimizer_weights(opt_path)
 
     def __getstate__(self):
         return self._serialize_model(save_optimizer=True, extra_data=self.extra_data)

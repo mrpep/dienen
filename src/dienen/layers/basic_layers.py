@@ -384,8 +384,8 @@ class Slice(tfkl.Layer):
         return config
 
 class SliceTensor(tfkl.Layer):
-    def __init__(self,slices,name=None):
-        super(SliceTensor,self).__init__(name=name)
+    def __init__(self,slices,name=None,trainable=False):
+        super(SliceTensor,self).__init__(name=name,trainable=False)
         self.slices_ = slices
 
     def build(self,input_shape):

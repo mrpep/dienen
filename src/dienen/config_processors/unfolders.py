@@ -352,6 +352,7 @@ def external_unfold(name,config,metadata=None,logger=None):
     trainable_from = config.get('trainable_from',None)
     trainable_layers = config.get('trainable_layers',None)
     trainable = config.get('trainable',True)
+    training_flag = config.get('training',False)
 
     import dienen
 
@@ -470,7 +471,7 @@ def external_unfold(name,config,metadata=None,logger=None):
     for layer_name, layer_config in new_config.items():
         if layer_name not in trainable_layers:
             layer_config['trainable'] = False
-            layer_config['training'] = False #This is to avoid problems with BN accumulated statistics
+            layer_config['training'] = training_flag #This is to avoid problems with BN accumulated statistics
         else:
             layer_config['trainable'] = True
 

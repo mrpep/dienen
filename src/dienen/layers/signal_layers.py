@@ -87,7 +87,7 @@ class ImageFromPatches(tfkl.Layer):
 
 class MelScale(tfkl.Layer):
     def __init__(self,num_mel_bins=64,num_spectrogram_bins=None,sample_rate=None,lower_edge_hertz=125.0,upper_edge_hertz=3800.0,name=None, trainable=False): 
-        super(MelScale, self).__init__(name=name)
+        super(MelScale, self).__init__(name=name, trainable=False)
         self.mel_args = {'mb':num_mel_bins, 
                          'sb':num_spectrogram_bins,
                          'sr': sample_rate,
@@ -163,7 +163,7 @@ class SpecAugment(tf.keras.layers.Layer):
     probability: probability of SpecAugment being applied to an instance.
     """
     def __init__(self,f_gaps = [0,4],t_gaps = [0,4],f_gap_size=[5,15],t_gap_size=[5,15],probability=0.5,name=None, trainable=False):
-        super(SpecAugment, self).__init__(name=name, trainable=trainable)
+        super(SpecAugment, self).__init__(name=name, trainable=False)
         self.f_gaps = f_gaps
         self.t_gaps = t_gaps
         self.f_gap_size = f_gap_size
@@ -235,7 +235,7 @@ class Spectrogram(tfkl.Layer):
     def __init__(self,win_size,hop_size,fft_size=None,calculate='magnitude',window=tf.signal.hann_window,
                 pad_end=False,name=None, trainable=False, discard_nyquist=False):
 
-        super(Spectrogram, self).__init__(name=name)
+        super(Spectrogram, self).__init__(name=name, trainable=False)
         self.stft_args = {'ws': win_size,
                   'hs': hop_size,
                   'ffts': fft_size,

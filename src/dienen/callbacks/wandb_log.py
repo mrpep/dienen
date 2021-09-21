@@ -242,17 +242,18 @@ class WANDBLogger(Callback):
         return metric_results
         
     def on_epoch_end(self, batch, logs):
-        logged_metrics = None
-        for log_type, log_params in self.loggers.items():
-            if (log_params['unit'] == 'epoch') and ((self.step + 1) % int(log_params['freq']) == 0):
-               logged_metrics = self.log_mapping[log_type](logs)
+        if logs is not None:
+            logged_metrics = None
+            for log_type, log_params in self.loggers.items():
+                if (log_params['unit'] == 'epoch') and ((self.epoch + 1) % int(log_params['freq']) == 0):
+                    logged_metrics = self.log_mapping[log_type](log_params,logs)
 
-        if ('TrainMetrics' in self.loggers) and len(logs)>0:
-            logged_metrics = self.log_train_metrics(self.loggers['TrainMetrics'],logs)
-        if logged_metrics is not None:
-            logs.update(logged_metrics)
+            if ('TrainMetrics' in self.loggers) and len(logs)>0:
+                logged_metrics = self.log_train_metrics(self.loggers['TrainMetrics'],logs)
+            if logged_metrics is not None:
+                logs.update(logged_metrics)
 
-        self.model.metrics_log.update(logs)
+            self.model.metrics_log.update(logs)
 
         self.epoch += 1
         

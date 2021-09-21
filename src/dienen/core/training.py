@@ -87,7 +87,7 @@ class TrainingNode(DienenNode):
 
     def get_optimizer(self):
         optimizer_params = self.config.get('optimizer',None)
-        optimizer_modules_names = ['tensorflow.keras.optimizers']
+        optimizer_modules_names = ['tensorflow.keras.optimizers', 'tensorflow.keras.optimizers.schedules']
         optimizer_modules_names = optimizer_modules_names + self.modules
         optimizer_modules = get_modules(optimizer_modules_names)
         

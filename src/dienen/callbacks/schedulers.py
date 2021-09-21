@@ -41,7 +41,9 @@ class GradualUnfreezing(tf.keras.callbacks.Callback):
         
         self.model.compile(loss=self.model.loss, optimizer=self.model.optimizer, metrics=self.model.compiled_metrics._metrics)
         self.model.train_function = self.model.make_train_function()
-        tf.keras.backend.set_value(self.model.optimizer.lr,lr)
+
+        if type(self.model.optimizer.lr).__name__ == 'EagerTensor':
+            tf.keras.backend.set_value(self.model.optimizer.lr,lr)
         print('Trainable weights: {}, Non trainable weights: {}'.format(count_params(self.model.trainable_weights),count_params(self.model.non_trainable_weights)))
         self.current_lr = lr
 
