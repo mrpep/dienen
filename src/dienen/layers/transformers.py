@@ -22,7 +22,11 @@ class MultiheadAttention(tfkl.Layer):
                  shape_2d=None,
                  share_pe_heads=True,
                  pe_initialization='uniform',
-                 cls_token=True):
+                 cls_token=True,
+                 q_initializer='uniform',
+                 k_initializer='uniform',
+                 v_initializer='uniform',
+                 o_initializer='uniform'):
 
         super(MultiheadAttention,self).__init__(name=name)
         self.d_model = d_model
@@ -35,11 +39,39 @@ class MultiheadAttention(tfkl.Layer):
                  shape_2d=shape_2d, share_pe_heads=share_pe_heads, pe_initialization=pe_initialization, cls_token = cls_token) 
         else:
             self.scaled_dot_product_attention = BlockSparseProductAttention(name = self.name + '_block_sparse_attention', block_size=sparse_block_size,sparse_pattern=sparse_pattern,apply_softmax = apply_softmax)
+        
+        if q_initializer == 'uniform':
+            q_initializer = tfki.GlorotUniform()
+        elif q_initializer == 'zeros':
+            q_initializer = tfki.Zeros()
+        elif q_initializer == 'identity':
+            q_initializer = tfki.Identity()
+        
+        if k_initializer == 'uniform':
+            k_initializer = tfki.GlorotUniform()
+        elif k_initializer == 'zeros':
+            k_initializer = tfki.Zeros()
+        elif k_initializer == 'identity':
+            k_initializer = tfki.Identity()
 
-        self.wq = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wq',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[0]), trainable=trainable)
-        self.wk = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wk',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[1]), trainable=trainable)
-        self.wv = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wv',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[2]), trainable=trainable)
-        self.wo = tf.keras.layers.Dense(d_model,use_bias=use_bias,name=self.name + '_wo',kernel_initializer=InitializerScaler(tfki.GlorotUniform(),qkvw_init_scale[3]), trainable=trainable)
+        if v_initializer == 'uniform':
+            v_initializer = tfki.GlorotUniform()
+        elif v_initializer == 'zeros':
+            v_initializer = tfki.Zeros()
+        elif v_initializer == 'identity':
+            v_initializer = tfki.Identity()
+
+        if o_initializer == 'uniform':
+            o_initializer = tfki.GlorotUniform()
+        elif o_initializer == 'zeros':
+            o_initializer = tfki.Zeros()
+        elif o_initializer == 'identity':
+            o_initializer = tfki.Identity()
+
+        self.wq = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wq',kernel_initializer=InitializerScaler(q_initializer,qkvw_init_scale[0]), trainable=trainable)
+        self.wk = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wk',kernel_initializer=InitializerScaler(k_initializer,qkvw_init_scale[1]), trainable=trainable)
+        self.wv = tf.keras.layers.Dense(d_proj*n_heads,use_bias=use_bias,name=self.name + '_wv',kernel_initializer=InitializerScaler(v_initializer,qkvw_init_scale[2]), trainable=trainable)
+        self.wo = tf.keras.layers.Dense(d_model,use_bias=use_bias,name=self.name + '_wo',kernel_initializer=InitializerScaler(o_initializer,qkvw_init_scale[3]), trainable=trainable)
 
     def split_heads(self, x, batch_size):
         """Split the last dimension into (num_heads, depth).
@@ -74,18 +106,46 @@ class MultiheadAttention(tfkl.Layer):
         return output
 
 class PositionalEmbeddingLookup(tfkl.Layer):
-    def __init__(self, name=None,trainable=True, initialization='normal'):
+    def __init__(self, name=None,trainable=True, initialization='normal',repeat=1,tile=1,cls_token=True):
         super(PositionalEmbeddingLookup, self).__init__(name=name,trainable=True)
         self.initialization = initialization
         self.supports_masking = True
+        self.tile, self.repeat, self.cls_token = tile, repeat, cls_token
 
     def build(self, input_shape):
-        self.lookup_table = self.add_weight(shape=(input_shape[1:]),
+        T = input_shape[1]
+        if self.tile>1:
+            if self.cls_token:
+                T = (T-1)//self.tile + 1
+            else:
+                T = T//self.tile
+        if self.repeat>1:
+            if self.cls_token:
+                T = (T-1)//self.repeat + 1
+            else:
+                T = T//self.repeat            
+
+        self.lookup_table = self.add_weight(shape=(T,input_shape[-1]),
                                initializer=self.initialization,
                                trainable=True)
+
         self.positions = tf.constant(np.arange(0,input_shape[1]))
+
     def call(self, x):
+        if self.tile > 1:
+            if self.cls_token:
+                lookup_table = tf.concat([tf.expand_dims(self.lookup_table[0,:],axis=0), tf.tile(self.lookup_table[1:,:], (self.tile,1))],axis=0)
+            else:
+                lookup_table = tf.tile(self.lookup_table, (1,self.tile,1))
+            return x + tf.nn.embedding_lookup(lookup_table,self.positions)
+        if self.repeat > 1:
+            if self.cls_token:
+                lookup_table = tf.concat([tf.expand_dims(self.lookup_table[0,:],axis=0), tf.repeat(self.lookup_table[1:,:], self.repeat, axis=0)],axis=0)
+            else:
+                lookup_table = tf.repeat(self.lookup_table, self.repeat,axis=0)
+            return x + tf.nn.embedding_lookup(lookup_table,self.positions)
         return x + tf.nn.embedding_lookup(self.lookup_table,self.positions)
+        
 
 class PositionalEncoding(tfkl.Layer):
     def __init__(self,name=None,scale=1.0,trainable=False):
@@ -132,7 +192,7 @@ class ScaledDotProductAttention(tfkl.Layer):
 
         return np.stack([w_indices, h_indices]).T
 
-    def get_idx_distances(self,w,h,cls_token=True,offset=True):
+    def get_idx_distances(self,w,h,cls_token=True,offset=True,cls_token_correction=False):
         idxs = self.get_2dindices_from_sequence(w,h)
         idxs_tiled = np.tile(idxs[:,:,np.newaxis],(1,1,idxs.shape[0]))
         idxs_tiled = np.transpose(idxs_tiled,(0,2,1))
@@ -146,6 +206,10 @@ class ScaledDotProductAttention(tfkl.Layer):
         if offset:
             r_w = r_w - r_w.min()
             r_h = r_h - r_h.min()
+        
+        #CLS token correction (cls can see everything but other tokens cant see CLS, making it harder to learn long distance relations)
+        if cls_token_correction:
+            r_w[1:,0] = -1e9
 
         return idxs,r_w, r_h
 
@@ -183,7 +247,7 @@ class ScaledDotProductAttention(tfkl.Layer):
                                trainable=True,name='rpe_h')
 
         elif self.relative_attention_type == 'alibi2d':
-            idxs, rw, rh = self.get_idx_distances(self.shape_2d[0],self.shape_2d[1],self.cls_token,offset=False)
+            idxs, rw, rh = self.get_idx_distances(self.shape_2d[0],self.shape_2d[1],self.cls_token,offset=False,cls_token_correction=True)
             ms = 2**(-np.linspace(1,8,self.n_heads//2))
             rw_alibi = -np.abs(rw)
             rh_alibi = -np.abs(rh)
@@ -196,6 +260,16 @@ class ScaledDotProductAttention(tfkl.Layer):
                                             initializer=InitializeWith(tf.constant(all_heads)),
                                             trainable=False,
                                             name='r_matrix')
+        elif self.relative_attention_type == 'alibi2d_timeonly':
+            idxs, rw, rh = self.get_idx_distances(self.shape_2d[0],self.shape_2d[1],self.cls_token,offset=False,cls_token_correction=True)
+            ms = 2**(-np.linspace(1,8,self.n_heads))
+            rw_alibi = -np.abs(rw)
+            rw_alibi = np.tile(rw_alibi,(self.n_heads,1,1))
+            rw_alibi_heads = ms[:,np.newaxis,np.newaxis]*rw_alibi
+            self.r_matrix = self.add_weight(shape=[self.n_heads,rw_alibi_heads.shape[1],rw_alibi_heads.shape[2]],
+                                            initializer=InitializeWith(tf.constant(rw_alibi_heads)),
+                                            trainable=False,
+                                            name='r_matrix')            
 
     def call(self,inputs):
         if len(inputs) == 1:
@@ -232,7 +306,7 @@ class ScaledDotProductAttention(tfkl.Layer):
             sh = tf.gather_nd(qerh,rh_idxs)
             sh = tf.reshape(sh,tf.shape(matmul_qk))
             matmul_qk = matmul_qk + sw + sh
-        elif self.relative_attention_type == 'alibi2d':
+        elif self.relative_attention_type == 'alibi2d' or self.relative_attention_type == 'alibi2d_timeonly':
             matmul_qk = matmul_qk + self.r_matrix
 
         dk = tf.cast(tf.shape(k)[-1], tf.float32)
@@ -272,7 +346,11 @@ class TransformerBlock(tfkl.Layer):
                 share_pe_heads=True, 
                 pe_initialization='uniform',
                 cls_token=True,
-                trainable=True):
+                trainable=True,
+                q_initializer='uniform',
+                k_initializer='uniform',
+                v_initializer='uniform',
+                o_initializer='uniform'):
 
         super(TransformerBlock,self).__init__(name=name, trainable = trainable)
         self.rezero = rezero
@@ -300,7 +378,11 @@ class TransformerBlock(tfkl.Layer):
                                         shape_2d=shape_2d, 
                                         share_pe_heads=share_pe_heads, 
                                         pe_initialization=pe_initialization,
-                                        cls_token=cls_token
+                                        cls_token=cls_token,
+                                        q_initializer=q_initializer,
+                                        k_initializer=k_initializer,
+                                        v_initializer=v_initializer,
+                                        o_initializer=o_initializer
                                         )
 
         self.dropout_1 = tfkl.Dropout(residual_dropout, name = self.name + '_dropout_1', trainable=trainable)
