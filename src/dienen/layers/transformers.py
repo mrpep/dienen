@@ -246,6 +246,28 @@ class ScaledDotProductAttention(tfkl.Layer):
                                initializer=self.pe_initialization,
                                trainable=True,name='rpe_h')
 
+        elif self.relative_attention_type == 'huang1d':
+            rw_idxs = np.arange(0,input_shape[1],dtype=np.int32)
+            rw_idxs = np.tile(rw_idxs[:,np.newaxis],(1,input_shape[1]))
+            rw_idxs = rw_idxs.T - rw_idxs
+            rw_idxs = rw_idxs - np.min(rw_idxs)
+
+            idxs_for_rw = []
+            for h in range(self.n_heads):
+                for i in range(rw_idxs.shape[0]):
+                    for j in range(rw_idxs.shape[1]):
+                        idxs_for_rw.append([h,i,rw_idxs[i,j]])
+            self.rw_idxs_tf = tf.constant(np.array(idxs_for_rw),dtype=tf.int32)
+
+            if self.share_pe_heads:
+                n_heads_trainable = 1
+            else:
+                n_heads_trainable = self.n_heads
+            self.er = self.add_weight(shape=[n_heads_trainable,input_shape[1]*2-1,self.d_proj],
+                                        initializer=self.pe_initialization,
+                                        trainable=True,name='rpe')
+            
+
         elif self.relative_attention_type == 'alibi2d':
             idxs, rw, rh = self.get_idx_distances(self.shape_2d[0],self.shape_2d[1],self.cls_token,offset=False,cls_token_correction=True)
             ms = 2**(-np.linspace(1,8,self.n_heads//2))
@@ -306,6 +328,18 @@ class ScaledDotProductAttention(tfkl.Layer):
             sh = tf.gather_nd(qerh,rh_idxs)
             sh = tf.reshape(sh,tf.shape(matmul_qk))
             matmul_qk = matmul_qk + sw + sh
+        elif self.relative_attention_type == 'huang1d':
+            if self.share_pe_heads:
+                er = tf.tile(self.er,(self.n_heads,1,1))
+            else:
+                er = self.er
+            bs = tf.shape(q)[0]
+            bs_idx = tf.repeat(tf.range(0,bs),self.rw_idxs_tf.shape[0])
+            rw_idxs = tf.concat([bs_idx[:,tf.newaxis],tf.tile(self.rw_idxs_tf,(bs,1))],axis=1)
+            qerw = tf.matmul(q,tf.expand_dims(er,axis=0),transpose_b=True)
+            sw = tf.gather_nd(qerw,rw_idxs)
+            sw = tf.reshape(sw,tf.shape(matmul_qk))
+            matmul_qk = matmul_qk + sw         
         elif self.relative_attention_type == 'alibi2d' or self.relative_attention_type == 'alibi2d_timeonly':
             matmul_qk = matmul_qk + self.r_matrix
 
