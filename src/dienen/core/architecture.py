@@ -7,8 +7,6 @@ import copy
 import tensorflow as tf
 import joblib
 
-from IPython import embed
-
 def recursive_replace(names,hierarchy,criteria='outputs'):
         return [recursive_replace(hierarchy[k][criteria], hierarchy) if k in hierarchy else k for k in names]
 
@@ -143,7 +141,6 @@ class Architecture:
 						else:
 							self.tensors[layer] = self.layers[layer](layer_inputs)
 					except Exception as e:
-						embed()
 						raise Exception('Could not connect layer {} with its inputs {}. {}'.format(layer,self.processed_config[layer]['input'],e))
 			else:
 				self.tensors[layer] = self.layers[layer]

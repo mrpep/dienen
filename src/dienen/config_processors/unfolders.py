@@ -461,9 +461,6 @@ def external_unfold(name,config,metadata=None,logger=None):
         if layer_name not in trainable_layers:
             layer_config['trainable'] = False
 
-    #from IPython import embed
-    #embed()
-
     if external_time_distributed:
         for layer_name, layer_config in new_config.items():
             layer_config['time_distributed'] = True
