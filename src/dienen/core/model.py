@@ -3,7 +3,7 @@ from .training import TrainingNode
 
 from dienen.config_processors import ArchitectureConfig
 from dienen.config_processors.utils import set_config_parameters
-from dienen.utils import get_config, get_available_gpus
+from dienen.utils import get_config, get_available_gpus, get_modules
 from dienen.core.file import load_weights
 
 try:
@@ -17,6 +17,11 @@ import joblib
 from pathlib import Path
 import tensorflow as tf
 from kahnfigh import Config, shallow_to_deep, shallow_to_original_keys
+from numba import cuda
+import numpy as np
+import tqdm
+
+import warnings
 
 class Model():
     def __init__(self,config,logger=None):
@@ -46,34 +51,42 @@ class Model():
         self.input_shapes = None
         self.output_shapes = None
 
-        gpu_device = self.gpu_config.get('device','auto')
-        if gpu_device == 'auto':
-            gpu, mem = get_available_gpus()
-            gpu_device = int(gpu)
-            if self.logger:
-                self.logger.info("Automatically selected device {} with {} available memory".format(gpu_device,mem))
-        gpu_growth = self.gpu_config.get('allow_growth',True)
-        gpus = tf.config.experimental.list_physical_devices('GPU')
-        if gpus:
-            try:
-                if len(gpus) < gpu_device:
-                    raise Exception('There are only {} available GPUs and the {} was requested'.format(len(gpus),gpu_device))
-                tf.config.experimental.set_visible_devices(gpus[gpu_device], 'GPU')
-            except RuntimeError as e:
-                raise Exception('Failed setting GPUs. {}'.format(e))
-        if gpu_growth:
-            for gpu in gpus:
-                try:
-                    tf.config.experimental.set_memory_growth(gpu, gpu_growth)
-                except RuntimeError as e:
-                    raise Exception('Failed setting GPU dynamic memory allocation. {}'.format(e))
+        training_strategy = self.config['Model'].get('DistributedStrategy',None)
+        if training_strategy is None:
+            self.training_strategy = tf.distribute.get_strategy()
+        elif training_strategy == 'Mirrored':
+            self.training_strategy = tf.distribute.MirroredStrategy()
 
-        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        if training_strategy is None:
+            self.gpu_device = self.gpu_config.get('device','auto')
+            if self.gpu_device == 'auto':
+                gpu, mem = get_available_gpus()
+                self.gpu_device = int(gpu)
+                if self.logger:
+                    self.logger.info("Automatically selected device {} with {} available memory".format(self.gpu_device,mem))
+            gpu_growth = self.gpu_config.get('allow_growth',True)
+            gpus = tf.config.experimental.list_physical_devices('GPU')
+            if gpus:
+                try:
+                    if len(gpus) < self.gpu_device:
+                        raise Exception('There are only {} available GPUs and the {} was requested'.format(len(gpus),self.gpu_device))
+                    tf.config.experimental.set_visible_devices(gpus[self.gpu_device], 'GPU')
+                except RuntimeError as e:
+                    warnings.warn('Failed setting GPUs. {}'.format(e))
+            if gpu_growth:
+                for gpu in gpus:
+                    try:
+                        tf.config.experimental.set_memory_growth(gpu, gpu_growth)
+                    except RuntimeError as e:
+                        warnings.warn('Failed setting GPU dynamic memory allocation. {}'.format(e))
+
+            logical_gpus = tf.config.experimental.list_logical_devices('GPU')
 
         if self.logger:
             self.logger.debug("Physical GPUs: {}. Logical GPUs: {}".format(len(gpus), len(logical_gpus)))
 
         self.externals = self.config['Model'].get('External', None)
+        self.validation_data = None
 
     def build(self, return_tensors=False, processed_config=None,input_names=None,output_names=None):
         """
@@ -115,7 +128,12 @@ class Model():
                         if self.logger:
                             self.logger.info('Layer {}: automatically set units as: {}'.format(out_name,self.output_shapes[i][0]))
         
-        nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config)
+        layer_modules = self.config.get('Model/layer_modules',None)
+        if layer_modules is not None:
+            layer_modules = get_modules(layer_modules)
+
+        nn = Architecture(self.architecture_config,layer_modules = layer_modules,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config,training_strategy=self.training_strategy,custom_model=self.config['Model'].get('custom_model',None),modules=self.modules)
+        #nn = Architecture(self.architecture_config,inputs=input_names,outputs=output_names,externals=self.externals,processed_config=processed_config)
         self.core_model = nn
 
         if return_tensors:
@@ -123,12 +141,13 @@ class Model():
         else:
             return nn.model
 
-    def fit(self, data = None, from_epoch = -1, validation_data = None):
+    def fit(self, data = None, from_epoch = -1, validation_data = None, from_step = 0, class_weights = None):
         """
         Trains the model.
         data:               can be any object which is accepted by tf.keras.Model.fit()
         from_epoch:         specifies initial epoch
         validation_data:    can be any object which is accepted by the validation_data kwarg of tf.keras.Model.fit()
+        class_weights:      list of floats with the weight associated with each class
         """
         self.training_node = TrainingNode(self.config['Model']['Training'], modules = self.modules, logger=self.logger)
         if data is None:
@@ -149,8 +168,8 @@ class Model():
         else:
             print(self.core_model.model.summary())
        
-        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache)
-
+        self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache,training_strategy=self.training_strategy, from_step = from_step, class_weights=class_weights)
+        #self.training_node.fit(self.core_model.model, data, self.model_path, validation_data = validation_data, from_epoch = from_epoch, cache=self.cache)
 
     def get_optimizer(self):
         """
@@ -260,10 +279,62 @@ class Model():
                 else:
                     pass
             predict_fn = tf.keras.backend.function(inputs = inputs,outputs=outputs)
-            activations = predict_fn(data)
-            activations = {name: act for name, act in zip(output_names,activations)}
+            print(isinstance(data,list))
+            if (not isinstance(data,np.ndarray)) and (not isinstance(data,list)):
+                activations = [predict_fn(x_i) for x_i, y_i in tqdm.tqdm(data)]
+                activations = {k: np.concatenate([act_i[i] for act_i in activations],axis=0)[:len(data.data)] for i,k in enumerate(output_names)}
+            else:
+                activations = predict_fn(data)
+                activations = {name: act for name, act in zip(output_names,activations)}
             return activations
 
+    def predict_generator(self,data,output='output',batch_size=32):
+        if output == 'output':
+            raise Exception('predict_generator method still not implemented for output: output')
+        else:
+            if output == 'all':
+                output = [layer.name for layer in self.core_model.model.layers]
+            else: 
+                if not isinstance(output,list):
+                    output = [output]
+            
+            outputs = []
+            output_names = []
+            inputs = []
+            input_names = []
+            for layer in self.core_model.model.layers:
+                if hasattr(layer,'is_placeholder'):
+                    inputs.append(layer.output)
+                    input_names.append(layer.name)
+                elif layer.name in output:
+                    outputs.append(layer.output)
+                    output_names.append(layer.name)
+                else:
+                    pass
+            
+            predict_fn = tf.keras.backend.function(inputs = inputs,outputs=outputs)
+            if not isinstance(data,np.ndarray):
+                class GeneratorLen(object):
+                    def __init__(self, gen):
+                        self.gen = gen
+                        
+                    def __len__(self): 
+                        return len(self.gen)
+
+                    def __getitem__(self,i):
+                        x_i, y_i = data[i]
+                        y_i = predict_fn(x_i)
+                        idxs = self.gen.data.index[i*self.gen.batch_size:(i+1)*self.gen.batch_size]
+                        return {'{}/{}'.format(idx,k): v[i] for k,v in zip(output_names,y_i) for i, idx in enumerate(idxs)}
+                    
+                    def get_indexs(self,i):
+                        return self.gen.data.index[i*self.gen.batch_size:(i+1)*self.gen.batch_size]
+                
+            else:
+                raise Exception('predict_generator not implemented for non-generator data')
+
+        return GeneratorLen(data)
+                
     def save_model(self,filename,save_optimizer=False,extra_data=None):
         """
         Save the model
@@ -324,22 +395,26 @@ class Model():
         self.train_data = train
         self.validation_data = validation
 
-        if isinstance(train,tuple):
-            x = train[0][:16]
-            y = train[1][:16]
-        else:
-            x, y = train.__getitem__(0)
+        inputs = self.config['Model/inputs']
 
-        #For automatic shape inference
-        if isinstance(x,list):
-            self.input_shapes = [x_i.shape[1:] for x_i in x]
-        else:
-            self.input_shapes = [x.shape[1:]]
+        inputs_determined = sum([('shape' in l[list(l.keys())[0]]) for l in self.config['Model/Architecture'] if 'name' in l[list(l.keys())[0]] and l[list(l.keys())[0]]['name'] in inputs])
+        if inputs_determined != len(inputs):
+            if isinstance(train,tuple):
+                x = train[0][:16]
+                y = train[1][:16]
+            else:
+                x, y = train.__getitem__(0)
 
-        if isinstance(y,list):
-            self.output_shapes = [x_i.shape[1:] for x_i in y]
-        else:
-            self.output_shapes = [y.shape[1:]]
+            #For automatic shape inference
+            if isinstance(x,list):
+                self.input_shapes = [x_i.shape[1:] for x_i in x]
+            else:
+                self.input_shapes = [x.shape[1:]]
+
+            if isinstance(y,list):
+                self.output_shapes = [x_i.shape[1:] for x_i in y]
+            else:
+                self.output_shapes = [y.shape[1:]]
 
     def set_extra_data(self,data):
         """
@@ -389,7 +464,10 @@ class Model():
                 layer = self.core_model.model.get_layer(k)
                 layer.set_weights(v[0])
 
-    def load_weights(self,strategy='min'):
+    def summary(self):
+        return self.core_model.model.summary()
+
+    def load_weights(self,strategy='min',restore_optimizer=True):
         """
         Reads the checkpoints metadata saved, and automatically selects the best weights and sets them for the model.
 
@@ -410,7 +488,8 @@ class Model():
             weights_path = checkpoints_metadata[idx]['weights_path']
             opt_path = checkpoints_metadata[idx]['opt_weights_path']
             self.set_weights(weights_path)
-            self.set_optimizer_weights(opt_path)
+            if restore_optimizer:
+                self.set_optimizer_weights(opt_path)
 
     def __getstate__(self):
         return self._serialize_model(save_optimizer=True, extra_data=self.extra_data)

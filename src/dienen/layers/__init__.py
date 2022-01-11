@@ -7,4 +7,5 @@ from .losses import *
 from .signal_layers import *
 from .transformers import *
 from .vq import *
+from .sparse_attention import *
 

@@ -5,16 +5,25 @@ import numpy as np
 class MSE(tfkl.Layer):
     #x[0]: predicted
     #x[1]: original
-    def __init__(self,name=None,lnorm=2,offset=1e-9,normalize=False,trainable=False):
+    def __init__(self,name=None,lnorm=2,offset=1e-9,normalize=False,trainable=False,reduce_method=None):
         super(MSE,self).__init__(name=name,trainable=trainable)
         self.offset = offset
         self.normalize = normalize
         self.lnorm = lnorm
+        self.reduce = reduce_method
     
     def call(self,x):
         mse_error = tf.abs(x[0] - x[1])**self.lnorm
         if self.normalize:
             mse_error = mse_error/(self.offset + tf.abs(x[1])**self.lnorm)
+        if self.reduce == 'mean':
+            mse_error = tf.reduce_mean(mse_error)
+        elif self.reduce == 'sum':
+            mse_error = tf.reduce_sum(mse_error)
+        else:
+            pass
+
+        self.add_metric(mse_error,name='mse_error')
         return mse_error
 
     def get_config(self):
@@ -22,7 +31,8 @@ class MSE(tfkl.Layer):
         config.update({
             'offset': self.offset,
             'normalize': self.normalize,
-            'lnorm': self.lnorm
+            'lnorm': self.lnorm,
+            'reduce': self.reduce
         })
         return config
 
@@ -76,6 +86,7 @@ class Wav2Vec2ContrastiveLoss(tfkl.Layer):
             negatives_mask = self.mask_different_audios*negatives_mask
 
         avg_negatives_per_positive = tf.reduce_sum(negatives_mask)/tf.reduce_sum(positives_mask)
+        self.add_metric(tf.reduce_sum(positives_mask),name='positives_mask_sum')
         self.add_metric(avg_negatives_per_positive,name='mean_distractors_per_positive')
 
         num = tf.reduce_sum(sim*positives_mask,axis=0)
@@ -88,3 +99,33 @@ class Wav2Vec2ContrastiveLoss(tfkl.Layer):
         self.add_metric(closs,name='contrastive_loss')
 
         return closs
+
+class MaskedSparseCategoricalCrossEntropy(tfkl.Layer):
+    def __init__(self, from_logits=False,axis=-1,name=None):
+        super(MaskedSparseCategoricalCrossEntropy, self).__init__(name=name)
+        self.from_logits = from_logits
+        self.axis = axis
+    
+    def call(self,x):
+        y_true = x[0]
+        y_pred = x[1]
+        mask = x[2]
+        
+        loss = tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred, from_logits=False, axis=-1)
+        reduced_loss = tf.reduce_sum(mask*loss)/(tf.reduce_sum(mask)+1e-12)
+        self.add_metric(reduced_loss,name=self.name)
+        return reduced_loss
+
+class BinaryCrossEntropy(tfkl.Layer):
+    def __init__(self, from_logits=False,axis=-1,name=None):
+        super(BinaryCrossEntropy, self).__init__(name=name)
+        self.from_logits = from_logits
+        self.axis = axis
+
+    def call(self,x):
+        y_true = x[0]
+        y_pred = x[1]
+        loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(y_true, y_pred))
+        self.add_metric(loss,name=self.name)
+        return loss
+

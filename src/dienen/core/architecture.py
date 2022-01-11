@@ -2,10 +2,14 @@ import networkx as nx
 from .layer import Layer
 import dienen.layers
 from dienen.config_processors.utils import single_elem_list_to_elem
+from dienen.utils import get_modules, get_members_from_module
+import inspect
 import tensorflow.keras.layers
+import tensorflow_addons.layers
 import copy
 import tensorflow as tf
 import joblib
+import warnings
 
 def recursive_replace(names,hierarchy,criteria='outputs'):
         return [recursive_replace(hierarchy[k][criteria], hierarchy) if k in hierarchy else k for k in names]
@@ -15,7 +19,7 @@ class Architecture:
 	Processes a config with layers specification.
 	"""
     
-	def __init__(self,architecture_config,layer_modules=None, inputs=None, outputs=None, externals=None, processed_config=None):
+	def __init__(self,architecture_config,layer_modules=None, inputs=None, outputs=None, externals=None, processed_config=None, training_strategy=None, custom_model=None, modules=None):
 
 		self.architecture_config = architecture_config
 		self.processed_config = self.architecture_config.translate()
@@ -32,13 +36,19 @@ class Architecture:
 		self.inputs = self.inputs if isinstance(self.inputs,list) else [self.inputs]
 		self.outputs = self.outputs if isinstance(self.outputs,list) else [self.outputs]
 
-		if not layer_modules:
-			layer_modules = [dienen.layers, tensorflow.keras.layers]
-
-		self.layer_modules = layer_modules
+		
+		self.layer_modules = [dienen.layers, tensorflow.keras.layers,tensorflow_addons.layers]
+		if layer_modules is not None:
+			self.layer_modules += layer_modules
+		
+		#self.layer_modules = layer_modules
+		self.modules = modules
 		self.find_external_weights()
 		self.create_layers()
-		self.model = self.make_network()
+		self.custom_model = custom_model
+
+		with training_strategy.scope():
+			self.model = self.make_network(training_strategy)
 
 	def find_external_weights(self):
 		self.weights_to_assign = {}
@@ -46,7 +56,11 @@ class Architecture:
 			external_weights = {}
 			for model_name, model_path in self.externals['Models'].items():
 				if isinstance(model_path,str):
-					external_weights[model_name] = joblib.load(model_path)['weights']
+					external_model = joblib.load(model_path)
+					if isinstance(external_model,dict):
+						external_weights[model_name] = external_model['weights']
+					elif isinstance(external_model,dienen.core.model.Model):
+						external_weights[model_name] = external_model.get_weights()
 				else:
 					external_weights[model_name] = model_path.get_weights()
 
@@ -55,7 +69,7 @@ class Architecture:
 					if layer['from_layer'] in external_weights[layer['from_model']]:
 						self.weights_to_assign[layer_name] = external_weights[layer['from_model']][layer['from_layer']]
 					else:
-						raise Exception('Layer {} does not exist in external model {}'.format(layer['from_layer'],layer['from_model']))
+						warnings.warn('Layer {} does not exist in external model {}'.format(layer['from_layer'],layer['from_model']))
 					layer.pop('from_model')
 					layer.pop('from_layer')
 
@@ -108,7 +122,7 @@ class Architecture:
 		dependency_order = list(nx.topological_sort(reachable_subgraph))
 		return dependency_order
 
-	def make_network(self):
+	def make_network(self, training_strategy):
 		dependency_order = self.find_dependency_order(self.processed_config,self.inputs,self.outputs)
 		self.tensors = {}
 		shared_layers_counts = {}
@@ -118,6 +132,7 @@ class Architecture:
 				layer_inputs = layer_inputs if isinstance(layer_inputs,list) else [layer_inputs]
 				layer_inputs = [self.tensors[inp] for inp in layer_inputs]
 				layer_mask = self.processed_config[layer].get('mask', None)
+				layer_training = self.processed_config[layer].get('training',None)
 				if len(layer_inputs) == 1:
 					layer_inputs = layer_inputs[0]
 				if layer in self.shared_layers:
@@ -137,9 +152,10 @@ class Architecture:
 						if layer_mask is not None:
 							layer_mask = self.tensors[layer_mask]
 							layer_mask = tf.cast(layer_mask,tf.bool)
-							self.tensors[layer] = self.layers[layer](layer_inputs, mask=layer_mask)
+
+							self.tensors[layer] = self.layers[layer](layer_inputs, mask=layer_mask, training=layer_training)
 						else:
-							self.tensors[layer] = self.layers[layer](layer_inputs)
+							self.tensors[layer] = self.layers[layer](layer_inputs, training=layer_training)
 					except Exception as e:
 						raise Exception('Could not connect layer {} with its inputs {}. {}'.format(layer,self.processed_config[layer]['input'],e))
 			else:
@@ -147,8 +163,18 @@ class Architecture:
 
 		input_tensors = [self.tensors[in_tensor] for in_tensor in self.inputs]
 		output_tensors = [self.tensors[out_tensor] for out_tensor in self.outputs]
-		
-		model = tf.keras.Model(inputs=input_tensors,outputs=output_tensors)
+
+		if self.custom_model is None:
+			model = tf.keras.Model(inputs=input_tensors,outputs=output_tensors)
+		else:
+			available_modules = get_modules(self.modules)
+			available_cls = {}
+			for module in available_modules:
+				available_cls.update(get_members_from_module(module, filters=[inspect.isclass]))
+			model_cls = self.custom_model.pop('type')
+			model = available_cls[model_cls](inputs=input_tensors,outputs=output_tensors,**self.custom_model)
+			model.distributed_strategy = training_strategy
+
 		for layer_name,weights in self.weights_to_assign.items():
 			model.get_layer(layer_name).set_weights(weights)
 

@@ -75,6 +75,28 @@ class BooleanLayer(tfkl.Layer):
         })
         return config
 
+class CreateMask(tfkl.Layer):
+    """
+    Creates a mask from a tensor. It will take a zero as value when criteria is matched and 1 otherwise.
+    criteria: str. Can be 'min' if we want to put zeros where the minimum value is found. 
+                   Can be 'match_value' if we want to turn an specific value into zero. The value is passed with the kwarg value.
+    """
+    def __init__(self,criteria='min',value=None,name=None,trainable=False):
+        super(CreateMask,self).__init__(name=name)
+        self.criteria = criteria
+        self.value = value
+
+    def build(self,input_shape):
+        self.axis_to_reduce = [-i-1 for i in range(len(input_shape)-2)]
+
+    def call(self,x):
+        if self.criteria == 'min':
+            return 1.0 - tf.cast(tf.reduce_all(x==tf.reduce_min(x),axis=self.axis_to_reduce),tf.float32)
+        elif self.criteria == 'match_value':
+            return 1.0 - tf.cast(tf.reduce_all(x==self.value,axis=self.axis_to_reduce),tf.float32)
+        else:
+            raise Exception('Criteria not implemented')
+
 class Divide(tfkl.Layer):
     def __init__(self,name=None,trainable=False,offset=1e-9):
         super(Divide,self).__init__(name=name)
@@ -107,6 +129,8 @@ class EmbeddingMask(tfkl.Layer):
             self.lookup_table = self.add_weight(shape=[self.n_embeddings] + input_shape[0][2:],
                                 initializer='normal',
                                 trainable=True)
+        else:
+            raise Exception('User defined masking_values still not implemented')
 
     def call(self,x):
         signal, mask = x
@@ -233,6 +257,29 @@ class Log(tfkl.Layer):
     def compute_output_shape(self,input_shape):
         return input_shape
 
+class MaskedPooling1D(tfkl.Layer):
+    def __init__(self,name=None):
+        super(MaskedPooling1D,self).__init__(name=name)
+
+    def call(self,x):
+        signal = x[0]
+        mask = tf.expand_dims(x[1],axis=-1)
+        return tf.reduce_sum(signal*mask,axis=1)/(tf.reduce_sum(mask,axis=-2)+1e-12)
+
+    def get_config(self):
+        config = super().get_config().copy()
+        return config    
+
+class MinMaxScaler(tfkl.Layer):
+    def __init__(self,axis,name=None, trainable=False):
+        super().__init__(name=name, trainable=trainable)
+        self.axis = axis
+    
+    def call(self,x):
+        x = x - tf.reduce_min(x,axis=self.axis,keepdims=True)
+        x = x/(tf.reduce_max(tf.abs(x),axis=self.axis,keepdims=True))
+        return x
+
 class Normalize(tfkl.Layer):
     def __init__(self,normalization_type='mvn',name=None):
         super(Normalize,self).__init__(name=name)
@@ -248,6 +295,13 @@ class Normalize(tfkl.Layer):
             'normalization_type': self.normalization_type
         })
         return config
+
+class Not(tfkl.Layer):
+    def __init__(self,name=None):
+        super(Not,self).__init__(name=name)
+    
+    def call(self,x):
+        return 1.0 - tf.cast(x,tf.float32)
 
 class OneHot(tfkl.Layer):
     def __init__(self,depth=None,on_value=1,off_value=0,axis=-1,name=None):
@@ -269,7 +323,26 @@ class OneHot(tfkl.Layer):
             'axis': self.axis
         })
         return config
-    
+
+class Pad(tfkl.Layer):
+    def __init__(self,paddings,mode='CONSTANT',constant_values = 0,name=None):
+        super(Pad,self).__init__(name=name)
+        self.paddings = paddings
+        self.mode = mode
+        self.constant_values = constant_values
+
+    def call(self,x):
+        return tf.pad(x,self.paddings,self.mode,self.constant_values)
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'paddings': self.paddings,
+            'mode': self.mode,
+            'constant_values': self.constant_values
+        })
+        return config
+
 class PolarToComplex(tfkl.Layer):
     def __init__(self,name=None):
         super(PolarToComplex,self).__init__(name=name)
@@ -307,6 +380,24 @@ class Slice(tfkl.Layer):
             'begin': self.begin,
             'size': self.size
         })
+        return config
+
+class SliceTensor(tfkl.Layer):
+    def __init__(self,slices,name=None,trainable=False):
+        super(SliceTensor,self).__init__(name=name,trainable=False)
+        self.slices_ = slices
+
+    def build(self,input_shape):
+        self.slices = [slice(None)]*len(input_shape)
+        for sl in self.slices_:
+            self.slices[sl['axis']] = slice(sl['start'],sl['end'])
+    
+    def call(self,x):
+        return x[self.slices]
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({'slices': self.slices_})
         return config
 
 class Split(tfkl.Layer):
@@ -381,10 +472,11 @@ class TranslateRange(tfkl.Layer):
         return config
 
 class WeightedAverage(tf.keras.layers.Layer):
-    def __init__(self, weights='trainable',axis=1, initializer = 'ones', name=None):
+    def __init__(self, weights='trainable',axis=1, initializer = 'ones', normalize_weights = True, name=None):
         super(WeightedAverage, self).__init__(name=name)
         self.avg_weights = weights
         self.axis = axis
+        self.normalize_weights = normalize_weights
         self.initializer = initializer
 
     def build(self, input_shape):
@@ -401,6 +493,7 @@ class WeightedAverage(tf.keras.layers.Layer):
         else:
             self.kernel = np.ones(weights_shape)
             self.kernel[:] = self.avg_weights
+            self.kernel = tf.constant(self.kernel,dtype=tf.float32)
 
         self.perm = list(range(len(weights_shape)))
         self.perm[self.axis] = self.perm[-2]
@@ -408,5 +501,7 @@ class WeightedAverage(tf.keras.layers.Layer):
 
     def call(self, input):
         weights = tf.abs(self.kernel)
-        res = tf.matmul(weights/tf.reduce_sum(weights),tf.transpose(input,self.perm))
+        if self.normalize_weights:
+            weights = weights/tf.reduce_sum(weights)
+        res = tf.matmul(weights,tf.transpose(input,self.perm))
         return tf.transpose(res,self.perm)

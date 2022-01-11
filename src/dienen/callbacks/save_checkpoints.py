@@ -9,7 +9,7 @@ import os
 from pyknife.aws import S3File
 
 class SaveCheckpoints(Callback):
-    def __init__(self, save_optimizer = True, frequency = 1, time_unit = 'epoch', save_best = True, monitor_metric = 'val_loss', monitor_criteria = 'auto', compression_level=3, save_initialization=False, save_last = True, clean_old=True, wandb_log=False):
+    def __init__(self, save_optimizer = True, frequency = 1, time_unit = 'epoch', save_best = True, monitor_metric = 'val_loss', monitor_criteria = 'auto', compression_level=3, save_initialization=False, save_last = True, clean_old=True, wandb_log=False, swa=False):
         """
         Callback to save model parameters (aka checkpoints) regularly.
         
@@ -47,6 +47,9 @@ class SaveCheckpoints(Callback):
         self.clean_old = clean_old
         self.save_last = save_last
         self.wandb_log = wandb_log
+        self.swa = swa
+        self.do_swa = False
+        self.n_swa = 0
 
         if self.monitor_criteria == 'auto':
             if 'acc' in self.monitor_metric or self.monitor_metric.startswith('fmeasure'):
@@ -114,6 +117,7 @@ class SaveCheckpoints(Callback):
                 paths_to_keep = best_epoch_paths + last_epoch_paths
                 paths_to_keep = [k for k in paths_to_keep if k is not None]
                 paths_to_keep += [str(Path(ckpt_path,'metadata').absolute())]
+                paths_to_keep += [str(Path(ckpt_path,'swa.weights').absolute())]
                 all_files = [str(k.absolute()) for k in list(ckpt_path.rglob('*'))]
                 to_delete = list(set([f for f in all_files if f not in paths_to_keep]))
                 
@@ -133,6 +137,8 @@ class SaveCheckpoints(Callback):
                 if str(self.model_path).startswith('s3:'):
                     S3File(str(s3_ckpt_path),'metadata').upload(Path(ckpt_path,'metadata'))
 
+        if self.swa is not None and self.swa == self.epoch:
+            self.do_swa = True
 
         self.epoch += 1
 
@@ -163,15 +169,19 @@ class SaveCheckpoints(Callback):
         for layer in self.model.layers:
             if layer.name not in self.model.input_names:
                 weights[layer.name] = [layer.get_weights(),[v.name for v in layer.variables]]
-                
+
         if mode == 'step':
             current_step = self.step
         elif mode == 'epoch':
             current_step = self.epoch
         else:
             raise Exception("Unknown mode")
-        
-        checkpoint_history = {'mode': mode, 'step': current_step}
+             
+        checkpoint_history = {'mode': mode, 'step': self.step, 'epoch': self.epoch, 
+                            'intra_epoch': self.data.get_intra_epoch(), 
+                            'intra_epoch_step': self.data.get_step_in_intra_epoch(), 
+                            'next_intra_epoch_step': self.data.get_next_intra_epoch_step()}
+                            
         checkpoint_history['time'] = datetime.now()
         
         if self.monitor_metric and self.current_metric:
@@ -184,6 +194,17 @@ class SaveCheckpoints(Callback):
         
         weights_dir = Path(ckpt_path,filename+'.weights')
         joblib.dump(weights, weights_dir, compress=self.compression_level)
+        if self.do_swa:
+            if Path(ckpt_path,'swa.weights').exists():
+                swa_weights = joblib.load(Path(ckpt_path,'swa.weights'))
+                for k,v in weights.items():
+                    for i,w in enumerate(v[0]):
+                        swa_weights[k][0][i] += w
+                joblib.dump(swa_weights,Path(ckpt_path,'swa.weights'))
+            else:
+                joblib.dump(weights,Path(ckpt_path,'swa.weights'))
+            self.n_swa += 1
+            print('SWA of {} weights saved in {}'.format(self.n_swa, Path(ckpt_path,'swa.weights')))
 
         #Upload to S3
         if str(self.model_path).startswith('s3:'):
@@ -229,8 +250,10 @@ class SaveCheckpoints(Callback):
         if str(self.model_path).startswith('s3:'):
             S3File(str(s3_ckpt_path),'metadata').upload(metadata_dir)
         
-    def on_batch_end(self, batch, logs):       
-        if self.time_unit == 'step' and self.step%self.frequency == 0:
+    def on_batch_end(self, batch, logs):
+        if self.time_unit == 'step' and (self.step+1)%self.frequency == 0:
+            logs.update(self.model.metrics_log)
             self.current_metric = logs.get(self.monitor_metric, None)
             self.save(mode = 'step')
+
         self.step += 1

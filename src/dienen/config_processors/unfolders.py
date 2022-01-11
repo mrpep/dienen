@@ -3,11 +3,12 @@ import joblib
 from .utils import layerlist_to_layerdict, assign_names_and_inputs, find_name
 from kahnfigh import Config, shallow_to_deep, deep_to_shallow, shallow_to_original_keys
 import networkx as nx
+
 try:
     from ruamel_yaml import YAML
 except:
     from ruamel.yaml import YAML
-    
+
 def new_nodes_to_config(new_nodes, name):
     if len(new_nodes) == 1:
         layer_name = list(new_nodes[0].keys())[0]
@@ -355,13 +356,18 @@ def external_unfold(name,config,metadata=None,logger=None):
     trainable_from = config.get('trainable_from',None)
     trainable_layers = config.get('trainable_layers',None)
     trainable = config.get('trainable',True)
+    training_flag = config.get('training',False)
 
     import dienen
 
     if isinstance(external_models[external_model_name],str):
         external_model = joblib.load(external_models[external_model_name])
-        external_model_architecture = external_model['unfolded_config']
-        external_hierarchy = external_model['hierarchy']
+        if isinstance(external_model,dict):
+            external_model_architecture = external_model['unfolded_config']
+            external_hierarchy = external_model['hierarchy']
+        elif isinstance(external_model,dienen.core.model.Model):
+            external_model_architecture = external_model.core_model.processed_config
+            external_hierarchy = external_model.architecture_config.hierarchy
     elif isinstance(external_models[external_model_name],dienen.core.model.Model):
         external_model = external_models[external_model_name]
         external_model_architecture = external_model.core_model.processed_config
@@ -422,17 +428,23 @@ def external_unfold(name,config,metadata=None,logger=None):
     if external_last_layer and not external_first_layer and not external_layer_name:
         layers_subset = list(nx.ancestors(g,external_last_layer)) + [external_last_layer]
     elif external_first_layer and not external_last_layer and not external_layer_name:
-        layers_subset = list(nx.dfs_successors(g,external_first_layer))
+        layers_subset = nx.dfs_successors(g,external_first_layer)[external_first_layer] + [external_first_layer]
     elif external_first_layer and external_last_layer and not external_layer_name:
-        layers_subset = list(set(nx.dfs_successors(g,external_first_layer)).intersection(nx.ancestors(g,external_last_layer))) + [external_last_layer]
+        after_from = set(nx.dfs_successors(g,external_first_layer).keys())
+        before_to = set(nx.ancestors(g,external_last_layer))
+        layers_subset = list(after_from.intersection(before_to)) + [external_last_layer]
     elif external_layer_name:
         layers_subset = [external_layer_name]
     else:
         layers_subset = list(external_model_architecture.keys())
     if external_exclude_inputs:
         layers_subset = [layer for layer in layers_subset if external_model_architecture[layer]['class'] != 'Input']
-    
+        
     unfolded_layers = [external_model_architecture[l] for l in layers_subset]
+
+    #if len(unfolded_layers) == 1:
+    #    in_layers = [name]
+    #else:
     in_layers = []
     for l in unfolded_layers:
         ins = l['input']
@@ -463,6 +475,9 @@ def external_unfold(name,config,metadata=None,logger=None):
     for layer_name, layer_config in new_config.items():
         if layer_name not in trainable_layers:
             layer_config['trainable'] = False
+            layer_config['training'] = training_flag #This is to avoid problems with BN accumulated statistics
+        else:
+            layer_config['trainable'] = True
 
     if external_time_distributed:
         for layer_name, layer_config in new_config.items():
@@ -473,9 +488,11 @@ def external_unfold(name,config,metadata=None,logger=None):
         external_weight_layers = [layer_name for layer_name, layer in new_config.items() if layer['class'] != 'Input']
     elif isinstance(external_reset_weights,list):
         external_weight_layers = external_reset_weights
-    for layer in external_weight_layers:
-        new_config[layer]['from_model'] = external_model_name
-        new_config[layer]['from_layer'] = layer
+
+    if not config.get('reset_weights',False):
+        for layer in external_weight_layers:
+            new_config[layer]['from_model'] = external_model_name
+            new_config[layer]['from_layer'] = layer
 
     return new_config, hierarchy
 
