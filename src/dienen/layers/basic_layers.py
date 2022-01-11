@@ -158,7 +158,6 @@ class ExpandDims(tfkl.Layer):
         return tf.expand_dims(x,axis=self.axis)
 
     def compute_output_shape(self,input_shape):
-        from IPython import embed
         output_shape = list(input_shape)
         if self.axis == -1 or self.axis == len(output_shape):
             output_shape.append(1)

@@ -6,7 +6,12 @@ import tensorflow
 import nvgpu
 import numpy as np
 import pickle
-from ruamel.yaml import YAML
+
+try:
+    from ruamel_yaml import YAML
+except:
+    from ruamel.yaml import YAML
+
 from .modiuls import get_modules, get_members_from_module
 from kahnfigh import Config
 
